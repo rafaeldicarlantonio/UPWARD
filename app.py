@@ -50,7 +50,6 @@ _mount("chat")
 _mount("upload")
 _mount("ingest")
 _mount("memories")
-_mount("debug_selftest")
 _mount("search")
 _mount("entities")
 
@@ -67,38 +66,40 @@ def debug_routers():
 
 @app.get("/healthz")
 async def healthz():
+    """Minimal liveness probe."""
+    return {"status": "ok"}
+
+
+@app.get("/debug/selftest")
+async def debug_selftest():
     """
-    Cheap liveness probe with vendor init sanity.
+    Best-effort checks. All failures are non-fatal.
+    - DB connect if DATABASE_URL is set
+    - Pinecone flagged false for now
+    Returns: { db_ok, pinecone_ok, counts: {}, timings: {}, errors: {..} }
     """
-    status = {
-        "status": "ok",
-        "supabase": False,
-        "pinecone": False,
-        "openai": False,
-        # helpful config echoes (not secrets)
-        "cfg": {
-            "embed_model": CFG.get("EMBED_MODEL"),
-            "memories_text_column": CFG.get("MEMORIES_TEXT_COLUMN"),
-            "embed_dim": CFG.get("EMBED_DIM"),
-            "pinecone_index": CFG.get("PINECONE_INDEX"),
-        },
-    }
+    out = {"db_ok": False, "pinecone_ok": False, "counts": {}, "timings": {}, "errors": {}}
 
-    # Supabase
-    try:
-        from vendors.supabase_client import get_client
-        status["supabase"] = bool(get_client())
-    except Exception:
-        status["supabase"] = False
+    # Database connectivity (optional)
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        import time
+        t0 = time.time()
+        try:
+            import asyncpg  # type: ignore
+            conn = await asyncpg.connect(db_url, timeout=5)
+            try:
+                out["db_ok"] = True
+            finally:
+                await conn.close()
+            out["timings"]["db_ms"] = int((time.time() - t0) * 1000)
+        except Exception as e:
+            out["db_ok"] = False
+            out["errors"]["db"] = str(e)
+    else:
+        out["errors"]["db"] = "DATABASE_URL not set"
 
-    # Pinecone
-    try:
-        from vendors.pinecone_client import get_index
-        status["pinecone"] = bool(get_index())
-    except Exception:
-        status["pinecone"] = False
+    # Pinecone: not checked here
+    out["pinecone_ok"] = False  # false_for_now
 
-    # OpenAI
-    status["openai"] = bool(os.getenv("OPENAI_API_KEY"))
-
-    return status
+    return out

@@ -1,0 +1,256 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SUAPS Brain",
+    "version": "0.1.0"
+  },
+
+  "servers": [
+    { "url": "https://suaps-brain.onrender.com" }
+  ],
+
+  "security": [
+    { "ApiKeyAuth": [] }
+  ],
+
+  "paths": {
+    "/chat": {
+      "post": {
+        "summary": "Chat",
+        "operationId": "chat_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChatResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/upload": {
+      "post": {
+        "summary": "Upload",
+        "operationId": "upload_upload_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UploadResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingest/batch": {
+      "post": {
+        "summary": "Ingest Batch",
+        "operationId": "ingest_batch_ingest_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/IngestBatchRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IngestBatchResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memories/upsert": {
+      "post": {
+        "summary": "Memories Upsert",
+        "operationId": "memories_upsert_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MemoriesUpsertRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MemoriesUpsertResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/debug/memories": {
+      "get": {
+        "summary": "Debug Memories",
+        "operationId": "debug_memories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DebugMemoriesResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/debug/selftest": {
+      "get": {
+        "summary": "Debug Selftest",
+        "operationId": "debug_selftest_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DebugSelftestResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "summary": "Healthz",
+        "operationId": "healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthzResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "ChatRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string" },
+          "session_id": { "type": "string" },
+          "role": { "type": "string" },
+          "preferences": { "type": "object" },
+          "debug": { "type": "boolean" }
+        },
+        "required": ["prompt"]
+      },
+      "ChatResponse": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "answer": { "type": "string" },
+          "citations": { "type": "array", "items": { "type": "string" } },
+          "guidance_questions": { "type": "array", "items": { "type": "string" } },
+          "autosave": { "type": "object" },
+          "redteam": { "type": "object" },
+          "metrics": { "type": "object" }
+        },
+        "required": ["session_id", "answer"]
+      },
+      "UploadResponse": {
+        "type": "object",
+        "properties": {
+          "file_id": { "type": "string" },
+          "bytes": { "type": "integer" },
+          "mime_type": { "type": "string" },
+          "ingest_job_id": { "type": "string" }
+        },
+        "required": ["file_id", "bytes", "mime_type"]
+      },
+      "IngestBatchRequest": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "type": "object" } },
+          "dedupe": { "type": "boolean" }
+        },
+        "required": ["items"]
+      },
+      "IngestBatchResponse": {
+        "type": "object",
+        "properties": {
+          "upserted": { "type": "array", "items": { "type": "object" } },
+          "skipped": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "MemoriesUpsertRequest": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "text": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "role_view": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["type", "text"]
+      },
+      "MemoriesUpsertResponse": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string" },
+          "embedding_id": { "type": "string" }
+        },
+        "required": ["memory_id"]
+      },
+      "DebugMemoriesResponse": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "DebugSelftestResponse": {
+        "type": "object",
+        "properties": {
+          "openai_ms": { "type": "integer" },
+          "pinecone_ok": { "type": "boolean" },
+          "latency_ms": { "type": "integer" }
+        },
+        "required": ["openai_ms", "pinecone_ok", "latency_ms"]
+      },
+      "HealthzResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "openai": { "type": "object" },
+          "pinecone": { "type": "object" },
+          "supabase": { "type": "object" }
+        },
+        "required": ["status", "openai", "pinecone", "supabase"]
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "zephyr_decision_001",
+    "prompt": "Summarize Multi-Layered content flow for SUAPS lectures.",
+    "must_include": ["content", "Lectures"],
+    "must_cite_any": ["mem_","-"], 
+    "max_latency_ms": 7000
+  },
+  {
+    "id": "council_memo_lookup",
+    "prompt": "Summarize the Council memo proposal and cite the source IDs.",
+    "must_include": ["proposal", "Council"],
+    "must_cite_any": ["mem_"],
+    "max_latency_ms": 7000
+  }
+]

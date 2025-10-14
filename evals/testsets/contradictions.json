@@ -1,0 +1,70 @@
+[
+  {
+    "id": "contradiction_001",
+    "prompt": "What is the current policy on remote work?",
+    "description": "Should detect contradictions between different statements about remote work policy",
+    "must_include": ["remote", "work", "policy"],
+    "expected_contradictions": true,
+    "contradiction_subjects": ["remote work", "policy"],
+    "max_latency_ms": 500,
+    "category": "contradictions"
+  },
+  {
+    "id": "contradiction_002",
+    "prompt": "How should we handle budget allocation for this project?",
+    "description": "Should detect contradictions between different budget allocation approaches",
+    "must_include": ["budget", "allocation"],
+    "expected_contradictions": true,
+    "contradiction_subjects": ["budget", "allocation"],
+    "max_latency_ms": 500,
+    "category": "contradictions"
+  },
+  {
+    "id": "contradiction_003",
+    "prompt": "What are the requirements for the new system?",
+    "description": "Should detect contradictions between different system requirements",
+    "must_include": ["requirements", "system"],
+    "expected_contradictions": true,
+    "contradiction_subjects": ["requirements", "system"],
+    "max_latency_ms": 500,
+    "category": "contradictions"
+  },
+  {
+    "id": "contradiction_004",
+    "prompt": "What is the timeline for project completion?",
+    "description": "Should detect contradictions between different timeline estimates",
+    "must_include": ["timeline", "completion"],
+    "expected_contradictions": true,
+    "contradiction_subjects": ["timeline", "completion"],
+    "max_latency_ms": 500,
+    "category": "contradictions"
+  },
+  {
+    "id": "contradiction_005",
+    "prompt": "How should we approach the client relationship?",
+    "description": "Should detect contradictions between different client relationship strategies",
+    "must_include": ["client", "relationship"],
+    "expected_contradictions": true,
+    "contradiction_subjects": ["client", "relationship"],
+    "max_latency_ms": 500,
+    "category": "contradictions"
+  },
+  {
+    "id": "no_contradiction_001",
+    "prompt": "What is the company's mission statement?",
+    "description": "Should NOT detect contradictions for straightforward factual information",
+    "must_include": ["mission", "statement"],
+    "expected_contradictions": false,
+    "max_latency_ms": 500,
+    "category": "no_contradictions"
+  },
+  {
+    "id": "no_contradiction_002",
+    "prompt": "What are the office hours?",
+    "description": "Should NOT detect contradictions for simple factual information",
+    "must_include": ["office", "hours"],
+    "expected_contradictions": false,
+    "max_latency_ms": 500,
+    "category": "no_contradictions"
+  }
+]

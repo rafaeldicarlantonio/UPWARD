@@ -1,0 +1,52 @@
+[
+  {
+    "id": "implicate_lift_001",
+    "prompt": "What are the key principles of effective leadership in SUAPS?",
+    "description": "Should surface implicate knowledge about leadership principles from concept entities rather than just literal mentions",
+    "must_include": ["leadership", "principles"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift"
+  },
+  {
+    "id": "implicate_lift_002", 
+    "prompt": "How does the organization handle conflict resolution?",
+    "description": "Should surface implicate knowledge about conflict resolution processes from concept entities",
+    "must_include": ["conflict", "resolution"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift"
+  },
+  {
+    "id": "implicate_lift_003",
+    "prompt": "What are the core values that guide decision-making?",
+    "description": "Should surface implicate knowledge about organizational values from concept entities",
+    "must_include": ["values", "decision"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift"
+  },
+  {
+    "id": "implicate_lift_004",
+    "prompt": "How does the team approach innovation and change management?",
+    "description": "Should surface implicate knowledge about innovation processes from concept entities",
+    "must_include": ["innovation", "change"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift"
+  },
+  {
+    "id": "implicate_lift_005",
+    "prompt": "What communication strategies work best for remote teams?",
+    "description": "Should surface implicate knowledge about communication strategies from concept entities",
+    "must_include": ["communication", "remote"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift"
+  }
+]

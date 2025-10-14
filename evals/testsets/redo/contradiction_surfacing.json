@@ -1,0 +1,300 @@
+[
+  {
+    "id": "contradiction_surfacing_001",
+    "prompt": "What is the company's policy on remote work?",
+    "description": "REDO should surface contradictory evidence about remote work policies side by side",
+    "must_include": ["remote", "work", "policy"],
+    "expected_contradictions": true,
+    "contradiction_pairs": [
+      {
+        "claim_a": "Remote work is fully supported and encouraged",
+        "claim_b": "Remote work is only allowed for senior employees",
+        "source_a": "hr_policy_2024",
+        "source_b": "management_guidelines_2023"
+      }
+    ],
+    "max_latency_ms": 500,
+    "category": "contradiction_surfacing",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "policy_contradiction",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_001",
+          "content": "Remote work is fully supported and encouraged for all employees",
+          "relevance_score": 0.9,
+          "source": "hr_policy_2024",
+          "timestamp": "2024-01-15"
+        },
+        {
+          "id": "ctx_002",
+          "content": "Remote work is only allowed for senior employees with manager approval",
+          "relevance_score": 0.8,
+          "source": "management_guidelines_2023",
+          "timestamp": "2023-12-01"
+        },
+        {
+          "id": "ctx_003",
+          "content": "Hybrid work arrangements are the preferred approach",
+          "relevance_score": 0.7,
+          "source": "workplace_strategy_2024",
+          "timestamp": "2024-02-01"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_001", "ctx_002", "ctx_003"],
+      "contradictions_count": 1,
+      "final_plan_type": "contradiction_aware"
+    }
+  },
+  {
+    "id": "contradiction_surfacing_002",
+    "prompt": "What is the recommended approach for data backup?",
+    "description": "REDO should surface contradictory evidence about backup strategies",
+    "must_include": ["data", "backup", "approach"],
+    "expected_contradictions": true,
+    "contradiction_pairs": [
+      {
+        "claim_a": "Daily automated backups are sufficient",
+        "claim_b": "Real-time continuous backups are required",
+        "source_a": "backup_policy_standard",
+        "source_b": "security_requirements_high"
+      }
+    ],
+    "max_latency_ms": 500,
+    "category": "contradiction_surfacing",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "technical_contradiction",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_004",
+          "content": "Daily automated backups are sufficient for most business needs",
+          "relevance_score": 0.9,
+          "source": "backup_policy_standard",
+          "timestamp": "2024-01-10"
+        },
+        {
+          "id": "ctx_005",
+          "content": "Real-time continuous backups are required for critical systems",
+          "relevance_score": 0.8,
+          "source": "security_requirements_high",
+          "timestamp": "2024-01-20"
+        },
+        {
+          "id": "ctx_006",
+          "content": "Backup frequency should match data criticality and RTO requirements",
+          "relevance_score": 0.7,
+          "source": "disaster_recovery_guide",
+          "timestamp": "2024-01-05"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_004", "ctx_005", "ctx_006"],
+      "contradictions_count": 1,
+      "final_plan_type": "contradiction_aware"
+    }
+  },
+  {
+    "id": "contradiction_surfacing_003",
+    "prompt": "How should we handle customer complaints?",
+    "description": "REDO should surface contradictory evidence about complaint handling approaches",
+    "must_include": ["customer", "complaints", "handle"],
+    "expected_contradictions": true,
+    "contradiction_pairs": [
+      {
+        "claim_a": "All complaints should be escalated to management immediately",
+        "claim_b": "Front-line staff should resolve complaints independently first",
+        "source_a": "escalation_policy_2024",
+        "source_b": "empowerment_guidelines_2023"
+      }
+    ],
+    "max_latency_ms": 500,
+    "category": "contradiction_surfacing",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "process_contradiction",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_007",
+          "content": "All complaints should be escalated to management immediately for proper handling",
+          "relevance_score": 0.9,
+          "source": "escalation_policy_2024",
+          "timestamp": "2024-01-12"
+        },
+        {
+          "id": "ctx_008",
+          "content": "Front-line staff should resolve complaints independently first to improve response time",
+          "relevance_score": 0.8,
+          "source": "empowerment_guidelines_2023",
+          "timestamp": "2023-11-15"
+        },
+        {
+          "id": "ctx_009",
+          "content": "Complaint severity should determine the appropriate handling approach",
+          "relevance_score": 0.7,
+          "source": "customer_service_framework",
+          "timestamp": "2024-01-08"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_007", "ctx_008", "ctx_009"],
+      "contradictions_count": 1,
+      "final_plan_type": "contradiction_aware"
+    }
+  },
+  {
+    "id": "contradiction_surfacing_004",
+    "prompt": "What is the best pricing strategy for our new product?",
+    "description": "REDO should surface contradictory evidence about pricing strategies",
+    "must_include": ["pricing", "strategy", "product"],
+    "expected_contradictions": true,
+    "contradiction_pairs": [
+      {
+        "claim_a": "Premium pricing maximizes profit margins",
+        "claim_b": "Competitive pricing maximizes market share",
+        "source_a": "pricing_analysis_premium",
+        "source_b": "market_research_competitive"
+      }
+    ],
+    "max_latency_ms": 500,
+    "category": "contradiction_surfacing",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "strategy_contradiction",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_010",
+          "content": "Premium pricing maximizes profit margins and positions product as high-quality",
+          "relevance_score": 0.9,
+          "source": "pricing_analysis_premium",
+          "timestamp": "2024-01-18"
+        },
+        {
+          "id": "ctx_011",
+          "content": "Competitive pricing maximizes market share and customer acquisition",
+          "relevance_score": 0.8,
+          "source": "market_research_competitive",
+          "timestamp": "2024-01-22"
+        },
+        {
+          "id": "ctx_012",
+          "content": "Pricing strategy should align with product positioning and target market",
+          "relevance_score": 0.7,
+          "source": "marketing_strategy_guide",
+          "timestamp": "2024-01-14"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_010", "ctx_011", "ctx_012"],
+      "contradictions_count": 1,
+      "final_plan_type": "contradiction_aware"
+    }
+  },
+  {
+    "id": "contradiction_surfacing_005",
+    "prompt": "How should we approach software testing?",
+    "description": "REDO should surface contradictory evidence about testing methodologies",
+    "must_include": ["software", "testing", "approach"],
+    "expected_contradictions": true,
+    "contradiction_pairs": [
+      {
+        "claim_a": "Comprehensive test coverage is essential for quality",
+        "claim_b": "Focused testing on critical paths is more efficient",
+        "source_a": "quality_assurance_standards",
+        "source_b": "agile_testing_methodology"
+      }
+    ],
+    "max_latency_ms": 500,
+    "category": "contradiction_surfacing",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "methodology_contradiction",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_013",
+          "content": "Comprehensive test coverage is essential for ensuring software quality and reliability",
+          "relevance_score": 0.9,
+          "source": "quality_assurance_standards",
+          "timestamp": "2024-01-16"
+        },
+        {
+          "id": "ctx_014",
+          "content": "Focused testing on critical paths is more efficient and practical for agile development",
+          "relevance_score": 0.8,
+          "source": "agile_testing_methodology",
+          "timestamp": "2024-01-19"
+        },
+        {
+          "id": "ctx_015",
+          "content": "Testing approach should balance coverage with development velocity",
+          "relevance_score": 0.7,
+          "source": "testing_best_practices",
+          "timestamp": "2024-01-11"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_013", "ctx_014", "ctx_015"],
+      "contradictions_count": 1,
+      "final_plan_type": "contradiction_aware"
+    }
+  },
+  {
+    "id": "no_contradiction_surfacing_001",
+    "prompt": "What is the company's mission statement?",
+    "description": "REDO should NOT surface contradictions for consistent factual information",
+    "must_include": ["mission", "statement"],
+    "expected_contradictions": false,
+    "max_latency_ms": 500,
+    "category": "no_contradiction_surfacing",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "factual_consistency",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_016",
+          "content": "Our mission is to deliver innovative solutions that empower our customers",
+          "relevance_score": 0.9,
+          "source": "company_mission_2024",
+          "timestamp": "2024-01-01"
+        },
+        {
+          "id": "ctx_017",
+          "content": "We are committed to excellence in customer service and product quality",
+          "relevance_score": 0.8,
+          "source": "company_values_2024",
+          "timestamp": "2024-01-01"
+        },
+        {
+          "id": "ctx_018",
+          "content": "Our vision is to be the leading provider in our industry",
+          "relevance_score": 0.7,
+          "source": "company_vision_2024",
+          "timestamp": "2024-01-01"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_016", "ctx_017", "ctx_018"],
+      "contradictions_count": 0,
+      "final_plan_type": "direct_answer"
+    }
+  }
+]

@@ -1,0 +1,232 @@
+[
+  {
+    "id": "deterministic_001",
+    "prompt": "What are the key factors for project success?",
+    "description": "REDO should produce deterministic outputs given fixed retrieval fixtures and seeded randomness",
+    "must_include": ["project", "success", "factors"],
+    "expected_deterministic": true,
+    "max_latency_ms": 500,
+    "category": "deterministic",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "deterministic_ordering",
+    "seed": 12345,
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_001",
+          "content": "Clear project objectives and scope definition",
+          "relevance_score": 0.9,
+          "importance_score": 0.8,
+          "source": "project_management_guide"
+        },
+        {
+          "id": "ctx_002",
+          "content": "Effective team communication and collaboration",
+          "relevance_score": 0.8,
+          "importance_score": 0.9,
+          "source": "team_leadership_handbook"
+        },
+        {
+          "id": "ctx_003",
+          "content": "Proper resource allocation and budget management",
+          "relevance_score": 0.7,
+          "importance_score": 0.7,
+          "source": "resource_management_framework"
+        }
+      ]
+    },
+            "expected_outputs": {
+                "stage_order": ["observe", "expand", "contrast", "order"],
+                "selected_context_ids": ["ctx_001", "ctx_002", "ctx_003"],
+                "contradictions_count": 0,
+                "final_plan_type": "direct_answer"
+            }
+  },
+  {
+    "id": "deterministic_002",
+    "prompt": "How should we handle customer complaints?",
+    "description": "REDO should produce deterministic outputs with contradiction detection",
+    "must_include": ["customer", "complaints", "handle"],
+    "expected_deterministic": true,
+    "expected_contradictions": true,
+    "max_latency_ms": 500,
+    "category": "deterministic",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "deterministic_contradiction",
+    "seed": 54321,
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_004",
+          "content": "Escalate all complaints to management immediately",
+          "relevance_score": 0.9,
+          "source": "escalation_policy",
+          "timestamp": "2024-01-15"
+        },
+        {
+          "id": "ctx_005",
+          "content": "Resolve complaints at the front-line level first",
+          "relevance_score": 0.8,
+          "source": "empowerment_guidelines",
+          "timestamp": "2024-01-10"
+        },
+        {
+          "id": "ctx_006",
+          "content": "Document all complaints for analysis and improvement",
+          "relevance_score": 0.7,
+          "source": "documentation_procedures",
+          "timestamp": "2024-01-12"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_004", "ctx_005", "ctx_006"],
+      "contradictions_count": 1,
+      "final_plan_type": "contradiction_aware"
+    }
+  },
+  {
+    "id": "deterministic_003",
+    "prompt": "What is the best approach for data security?",
+    "description": "REDO should produce deterministic outputs with security-focused ordering",
+    "must_include": ["data", "security", "approach"],
+    "expected_deterministic": true,
+    "max_latency_ms": 500,
+    "category": "deterministic",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "deterministic_security",
+    "seed": 98765,
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_007",
+          "content": "Implement multi-factor authentication",
+          "relevance_score": 0.9,
+          "security_level": 0.9,
+          "implementation_priority": 0.8,
+          "source": "security_standards"
+        },
+        {
+          "id": "ctx_008",
+          "content": "Encrypt all data at rest and in transit",
+          "relevance_score": 0.8,
+          "security_level": 0.9,
+          "implementation_priority": 0.9,
+          "source": "encryption_guidelines"
+        },
+        {
+          "id": "ctx_009",
+          "content": "Regular security audits and testing",
+          "relevance_score": 0.7,
+          "security_level": 0.8,
+          "implementation_priority": 0.6,
+          "source": "audit_procedures"
+        }
+      ]
+    },
+            "expected_outputs": {
+                "stage_order": ["observe", "expand", "contrast", "order"],
+                "selected_context_ids": ["ctx_007", "ctx_008", "ctx_009"],
+                "contradictions_count": 0,
+                "final_plan_type": "security_focused"
+            }
+  },
+  {
+    "id": "deterministic_004",
+    "prompt": "How can we improve team productivity?",
+    "description": "REDO should produce deterministic outputs with productivity-focused ordering",
+    "must_include": ["team", "productivity", "improve"],
+    "expected_deterministic": true,
+    "max_latency_ms": 500,
+    "category": "deterministic",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "deterministic_productivity",
+    "seed": 11111,
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_010",
+          "content": "Implement agile methodology with daily standups",
+          "relevance_score": 0.9,
+          "productivity_impact": 0.8,
+          "ease_of_implementation": 0.7,
+          "source": "agile_guide"
+        },
+        {
+          "id": "ctx_011",
+          "content": "Provide better project management tools",
+          "relevance_score": 0.8,
+          "productivity_impact": 0.7,
+          "ease_of_implementation": 0.8,
+          "source": "tool_recommendations"
+        },
+        {
+          "id": "ctx_012",
+          "content": "Reduce meeting frequency and duration",
+          "relevance_score": 0.7,
+          "productivity_impact": 0.6,
+          "ease_of_implementation": 0.9,
+          "source": "meeting_optimization"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_010", "ctx_011", "ctx_012"],
+      "contradictions_count": 0,
+      "final_plan_type": "productivity_focused"
+    }
+  },
+  {
+    "id": "deterministic_005",
+    "prompt": "What are the key considerations for technology adoption?",
+    "description": "REDO should produce deterministic outputs with business value ordering",
+    "must_include": ["technology", "adoption", "considerations"],
+    "expected_deterministic": true,
+    "max_latency_ms": 500,
+    "category": "deterministic",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "deterministic_tech_adoption",
+    "seed": 22222,
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_013",
+          "content": "Assess current infrastructure compatibility",
+          "relevance_score": 0.9,
+          "business_value": 0.8,
+          "technical_feasibility": 0.7,
+          "source": "infrastructure_assessment"
+        },
+        {
+          "id": "ctx_014",
+          "content": "Evaluate total cost of ownership and ROI",
+          "relevance_score": 0.8,
+          "business_value": 0.9,
+          "technical_feasibility": 0.8,
+          "source": "financial_analysis"
+        },
+        {
+          "id": "ctx_015",
+          "content": "Plan for staff training and change management",
+          "relevance_score": 0.7,
+          "business_value": 0.7,
+          "technical_feasibility": 0.6,
+          "source": "change_management_guide"
+        }
+      ]
+    },
+            "expected_outputs": {
+                "stage_order": ["observe", "expand", "contrast", "order"],
+                "selected_context_ids": ["ctx_013", "ctx_014", "ctx_015"],
+                "contradictions_count": 0,
+                "final_plan_type": "business_value_focused"
+            }
+  }
+]

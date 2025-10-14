@@ -20,9 +20,13 @@ from memory.graph import expand_entities
 from extractors.signals import extract_signals_from_text  # <-- NEW: fallback extractor
 from core.selection import SelectionFactory
 from core.packing import pack_with_contradictions
-from core.ledger import log_chat_request
+from core.ledger import log_chat_request, write_ledger, LedgerOptions
+from core.orchestrator.redo import RedoOrchestrator
+from core.types import QueryContext, OrchestrationConfig
+from core.trace_summary import summarize_for_role
 from feature_flags import get_feature_flag
 from core.metrics import record_api_call, record_error, time_operation, RetrievalMetrics
+from config import load_config
 
 router = APIRouter()
 client = OpenAI()
@@ -236,47 +240,47 @@ def chat_chat_post(
         index = get_index()
         t0 = datetime.datetime.utcnow()
 
-    # Resolve/ensure user (best-effort)
-    author_user_id = ensure_user(sb=sb, email=x_user_email)
+        # Resolve/ensure user (best-effort)
+        author_user_id = ensure_user(sb=sb, email=x_user_email)
 
-    # Ensure a session id
-    session_id = body.session_id
-    if not session_id:
-        # Try DB-generated id
-        payload = {"title": None}
-        if author_user_id:
-            payload["user_id"] = author_user_id
-        try:
-            sb.table("sessions").insert(payload).execute()
-            sel = sb.table("sessions").select("id").order("created_at", desc=True).limit(1).execute()
-            data = sel.data if hasattr(sel, "data") else sel.get("data") or []
-            if data:
-                session_id = data[0]["id"]
-        except Exception:
-            # Local fallback
-            session_id = str(uuid4())
+        # Ensure a session id
+        session_id = body.session_id
+        if not session_id:
+            # Try DB-generated id
+            payload = {"title": None}
+            if author_user_id:
+                payload["user_id"] = author_user_id
+            try:
+                sb.table("sessions").insert(payload).execute()
+                sel = sb.table("sessions").select("id").order("created_at", desc=True).limit(1).execute()
+                data = sel.data if hasattr(sel, "data") else sel.get("data") or []
+                if data:
+                    session_id = data[0]["id"]
+            except Exception:
+                # Local fallback
+                session_id = str(uuid4())
 
-    # Retrieval - use new dual retrieval system if enabled
-    retrieval_start = time.time()
-    use_dual_retrieval = get_feature_flag("retrieval.dual_index", default=False)
-    use_contradictions = get_feature_flag("retrieval.contradictions_pack", default=False)
-    use_liftscore = get_feature_flag("retrieval.liftscore", default=False)
-    
-    # Initialize default values
-    retrieved_chunks = []
-    contradictions = []
-    contradiction_score = 0.0
-    lift_score = None
-    selection_result = None
-    retrieval_error = None
-    
-    if use_dual_retrieval:
-        # Use new dual retrieval system with graceful fallback
-        try:
-            print(f"Using dual retrieval system (flags: dual_index={use_dual_retrieval}, contradictions={use_contradictions}, liftscore={use_liftscore})")
-            
-            # Create selector based on feature flags
-            selector = SelectionFactory.create_selector()
+        # Retrieval - use new dual retrieval system if enabled
+        retrieval_start = time.time()
+        use_dual_retrieval = get_feature_flag("retrieval.dual_index", default=False)
+        use_contradictions = get_feature_flag("retrieval.contradictions_pack", default=False)
+        use_liftscore = get_feature_flag("retrieval.liftscore", default=False)
+        
+        # Initialize default values
+        retrieved_chunks = []
+        contradictions = []
+        contradiction_score = 0.0
+        lift_score = None
+        selection_result = None
+        retrieval_error = None
+        
+        if use_dual_retrieval:
+            # Use new dual retrieval system with graceful fallback
+            try:
+                print(f"Using dual retrieval system (flags: dual_index={use_dual_retrieval}, contradictions={use_contradictions}, liftscore={use_liftscore})")
+                
+                # Create selector based on feature flags
+                selector = SelectionFactory.create_selector()
             
             # Generate embedding
             embedding = _embed(body.prompt)
@@ -350,7 +354,7 @@ def chat_chat_post(
                 contradiction_score = 0.0
                 lift_score = None
                 selection_result = None
-    else:
+            else:
         # Use legacy retrieval
         print("Using legacy retrieval system")
         try:
@@ -378,12 +382,97 @@ def chat_chat_post(
     retrieval_time = (time.time() - retrieval_start) * 1000  # Convert to milliseconds
 
     # 🔗 Graph Expansion (3 hops) - non-fatal
-    try:
+        try:
         graph_neighbors = expand_entities(sb, retrieved_chunks, max_hops=3, max_neighbors=10, max_per_entity=3)
         retrieved_chunks.extend(graph_neighbors)
     except Exception as e:
         # non-fatal: log or ignore if graph expansion fails
         print("Graph expansion failed:", e)
+
+    # 🎭 Orchestrator Integration - behind feature flags
+    orchestration_result = None
+    orchestration_warnings = []
+    orchestration_time = 0
+    
+            if get_feature_flag("orchestrator.redo_enabled", default=False):
+        try:
+            orchestration_start = time.time()
+            print("Running orchestrator with REDO enabled")
+            
+            # Load configuration
+            config = load_config()
+            time_budget_ms = config.get("ORCHESTRATION_TIME_BUDGET_MS", 400)
+            
+            # Create orchestrator
+            orchestrator = RedoOrchestrator()
+            
+            # Configure orchestrator
+            orchestration_config = OrchestrationConfig(
+                enable_contradiction_detection=use_contradictions,
+                enable_redo=True,
+                time_budget_ms=time_budget_ms,
+                max_trace_bytes=config.get("LEDGER_MAX_TRACE_BYTES", 100_000),
+                custom_knobs={
+                    "retrieval_top_k": int(os.getenv("TOPK_PER_TYPE", "16")),
+                    "implicate_top_k": 8,
+                    "use_dual_retrieval": use_dual_retrieval,
+                    "use_liftscore": use_liftscore,
+                    "use_contradictions": use_contradictions
+                }
+            )
+            orchestrator.configure(orchestration_config)
+            
+            # Create query context
+            query_context = QueryContext(
+                query=body.prompt,
+                session_id=session_id,
+                user_id=author_user_id,
+                role=body.role or "user",
+                preferences=body.preferences or {},
+                metadata={
+                    "retrieved_chunks": len(retrieved_chunks),
+                    "contradictions": len(contradictions),
+                    "retrieval_time_ms": retrieval_time,
+                    "use_dual_retrieval": use_dual_retrieval,
+                    "use_contradictions": use_contradictions,
+                    "use_liftscore": use_liftscore
+                }
+            )
+            
+            # Run orchestration with time budget
+            orchestration_result = orchestrator.run(query_context)
+            orchestration_time = (time.time() - orchestration_start) * 1000
+            
+            # Check if we exceeded time budget
+            if orchestration_time > time_budget_ms:
+                orchestration_warnings.append(f"Orchestration exceeded time budget: {orchestration_time:.1f}ms > {time_budget_ms}ms")
+                print(f"⚠️ Orchestration time budget exceeded: {orchestration_time:.1f}ms > {time_budget_ms}ms")
+            
+            # Use orchestrated context if available
+            if orchestration_result and orchestration_result.selected_context_ids:
+                # Filter retrieved chunks to only include orchestrated selections
+                orchestrated_chunks = []
+                for chunk in retrieved_chunks:
+                    if chunk.get("id") in orchestration_result.selected_context_ids:
+                        orchestrated_chunks.append(chunk)
+                
+                if orchestrated_chunks:
+                    retrieved_chunks = orchestrated_chunks
+                    print(f"Orchestrator selected {len(orchestrated_chunks)} chunks from {len(retrieved_chunks)} available")
+                else:
+                    print("Orchestrator selected no chunks, using all retrieved chunks")
+            
+            # Add orchestration warnings to general warnings
+            if orchestration_result and orchestration_result.warnings:
+                orchestration_warnings.extend(orchestration_result.warnings)
+            
+            print(f"Orchestration completed in {orchestration_time:.1f}ms")
+            
+        except Exception as e:
+            orchestration_warnings.append(f"Orchestration failed: {str(e)}")
+            print(f"Orchestration failed: {e}")
+            # Continue with legacy path
+            orchestration_result = None
 
     # Build context string with memory-type labels
     context_for_llm = "\n".join(chunk["text"] for chunk in retrieved_chunks)
@@ -393,17 +482,17 @@ def chat_chat_post(
 
     # Answer
     draft = _answer_json(body.prompt, context_for_llm, contradictions)
-    if not isinstance(draft, dict):
+            if not isinstance(draft, dict):
         raise HTTPException(status_code=500, detail="Answerer returned non-JSON")
 
-    # Ensure citations are always a list of strings (ids only)
-    if "citations" in draft and isinstance(draft["citations"], list):
+            # Ensure citations are always a list of strings (ids only)
+            if "citations" in draft and isinstance(draft["citations"], list):
         draft["citations"] = [
             c if isinstance(c, str) else c.get("id") for c in draft["citations"]
         ]
 
-    # Red-team (non-fatal)
-    try:
+            # Red-team (non-fatal)
+        try:
         verdict = review_answer(
             draft_json=draft,
             prompt=body.prompt,
@@ -413,7 +502,7 @@ def chat_chat_post(
         verdict = {"action": "allow", "reasons": []}
     action = (verdict.get("action") or "allow").lower()
 
-    if action == "block":
+            if action == "block":
         return {
             "session_id": session_id,
             "answer": "I can’t answer confidently with the available evidence. Try adding filters or uploading the source.",
@@ -424,10 +513,10 @@ def chat_chat_post(
             "metrics": {"latency_ms": int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)},
         }
 
-    # -----------------------
-    # Autosave (non-fatal) with robust fallback
-    # -----------------------
-    try:
+            # -----------------------
+            # Autosave (non-fatal) with robust fallback
+            # -----------------------
+        try:
         # Prefer LLM-provided autosave candidates
         candidates = (draft.get("autosave_candidates") or []).copy()
 
@@ -463,7 +552,7 @@ def chat_chat_post(
 
     # Persist messages (best-effort)
     message_id = None
-    try:
+        try:
         # Insert user message
         user_msg_result = sb.table("messages").insert(
             {"session_id": session_id, "role": "user", "content": body.prompt, "model": os.getenv("CHAT_MODEL")}
@@ -488,7 +577,7 @@ def chat_chat_post(
         print(f"Failed to persist messages: {e}")
     
     # Log rheomode run if dual_index is enabled
-    if get_feature_flag("retrieval.dual_index", default=False) and message_id and selection_result:
+            if get_feature_flag("retrieval.dual_index", default=False) and message_id and selection_result:
         try:
             total_time = (datetime.datetime.utcnow() - t0).total_seconds() * 1000
             timing = {
@@ -512,9 +601,63 @@ def chat_chat_post(
         except Exception as e:
             print(f"Failed to log rheomode run: {e}")
 
+    # 📝 Ledger Persistence - conditional on feature flag
+            if get_feature_flag("ledger.enabled", default=False) and message_id and orchestration_result:
+        try:
+            print("Writing orchestration trace to ledger")
+            
+            # Load configuration for ledger options
+            config = load_config()
+            ledger_options = LedgerOptions(
+                max_trace_bytes=config.get("LEDGER_MAX_TRACE_BYTES", 100_000),
+                enable_hashing=True,
+                redact_large_fields=True,
+                hash_algorithm="sha256"
+            )
+            
+            # Write to ledger
+            ledger_entry = write_ledger(
+                session_id=session_id,
+                message_id=message_id,
+                trace=orchestration_result,
+                options=ledger_options
+            )
+            
+            print(f"Ledger entry written: {ledger_entry.stored_size} bytes (truncated: {ledger_entry.is_truncated})")
+            
+            # Add ledger info to orchestration warnings if truncated
+            if ledger_entry.is_truncated:
+                orchestration_warnings.append(f"Trace truncated for ledger storage: {ledger_entry.original_size} -> {ledger_entry.stored_size} bytes")
+            
+        except Exception as e:
+            orchestration_warnings.append(f"Ledger persistence failed: {str(e)}")
+            print(f"Failed to write to ledger: {e}")
+
         # Record API call metrics
         total_latency_ms = (time.time() - start_time) * 1000
         record_api_call("chat", "POST", 200, total_latency_ms)
+        
+        # Build response metrics
+        response_metrics = {
+            "latency_ms": int((datetime.datetime.utcnow() - t0).total_seconds() * 1000),
+            "retrieval_time_ms": int(retrieval_time),
+            "orchestration_enabled": get_feature_flag("orchestrator.redo_enabled", default=False),
+            "ledger_enabled": get_feature_flag("ledger.enabled", default=False)
+        }
+        
+        # Add orchestration metrics if available
+        if orchestration_result:
+            response_metrics.update({
+                "orchestration_time_ms": int(orchestration_time),
+                "orchestration_stages": len(orchestration_result.stages),
+                "orchestration_contradictions": len(orchestration_result.contradictions),
+                "orchestration_warnings": len(orchestration_warnings)
+            })
+        
+        # Add orchestration warnings to response if debug mode
+        response_warnings = []
+        if body.debug and orchestration_warnings:
+            response_warnings.extend(orchestration_warnings)
         
         return {
             "session_id": session_id,
@@ -523,7 +666,8 @@ def chat_chat_post(
             "guidance_questions": draft.get("guidance_questions") or [],
             "autosave": autosave,
             "redteam": verdict,
-            "metrics": {"latency_ms": int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)},
+            "metrics": response_metrics,
+            "warnings": response_warnings if body.debug else []
         }
     
     except Exception as e:

@@ -161,7 +161,7 @@ def _pack_context(sb, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def _answer_json(prompt: str, context_str: str) -> Dict[str, Any]:
+def _answer_json(prompt: str, context_str: str, contradictions: List[Dict[str, Any]] = None) -> Dict[str, Any]:
     sys = """You are SUAPS Brain. Be concise and specific. Mentor tone: strategic, supportive.
     Always ground answers in SUAPS data. Cite the memory IDs you used.
 
@@ -176,7 +176,16 @@ def _answer_json(prompt: str, context_str: str) -> Dict[str, Any]:
     {...}
     """
 
-    user = json.dumps({"question": prompt, "context": context_str})
+    # Build context with optional contradictions section
+    context_data = {"question": prompt, "context": context_str}
+    
+    # Add contradictions section if enabled and contradictions exist
+    if contradictions and get_feature_flag("retrieval.contradictions_pack", default=False):
+        contradictions_text = _format_contradictions(contradictions)
+        if contradictions_text:
+            context_data["contradictions"] = contradictions_text
+
+    user = json.dumps(context_data)
     r = client.chat.completions.create(
         model=os.getenv("CHAT_MODEL", "gpt-4.1-mini"),
         messages=[{"role": "system", "content": sys}, {"role": "user", "content": user}],
@@ -184,6 +193,23 @@ def _answer_json(prompt: str, context_str: str) -> Dict[str, Any]:
     )
     raw = r.choices[0].message.content or "{}"
     return json.loads(raw)
+
+
+def _format_contradictions(contradictions: List[Dict[str, Any]]) -> str:
+    """Format contradictions for inclusion in model input."""
+    if not contradictions:
+        return ""
+    
+    formatted = ["CONTRADICTIONS DETECTED:"]
+    for i, contradiction in enumerate(contradictions, 1):
+        formatted.append(f"{i}. Subject: {contradiction.get('subject', 'Unknown')}")
+        formatted.append(f"   Claim A: {contradiction.get('claim_a', '')[:100]}...")
+        formatted.append(f"   Claim B: {contradiction.get('claim_b', '')[:100]}...")
+        formatted.append(f"   Type: {contradiction.get('contradiction_type', 'unknown')}")
+        formatted.append(f"   Confidence: {contradiction.get('confidence', 0.0):.2f}")
+        formatted.append("")
+    
+    return "\n".join(formatted)
 
 
 
@@ -221,10 +247,23 @@ def chat_chat_post(
 
     # Retrieval - use new dual retrieval system if enabled
     retrieval_start = time.time()
+    use_dual_retrieval = get_feature_flag("retrieval.dual_index", default=False)
+    use_contradictions = get_feature_flag("retrieval.contradictions_pack", default=False)
+    use_liftscore = get_feature_flag("retrieval.liftscore", default=False)
     
-    if get_feature_flag("retrieval.dual_index", default=False):
-        # Use new dual retrieval system
+    # Initialize default values
+    retrieved_chunks = []
+    contradictions = []
+    contradiction_score = 0.0
+    lift_score = None
+    selection_result = None
+    retrieval_error = None
+    
+    if use_dual_retrieval:
+        # Use new dual retrieval system with graceful fallback
         try:
+            print(f"Using dual retrieval system (flags: dual_index={use_dual_retrieval}, contradictions={use_contradictions}, liftscore={use_liftscore})")
+            
             # Create selector based on feature flags
             selector = SelectionFactory.create_selector()
             
@@ -241,30 +280,69 @@ def chat_chat_post(
             )
             
             # Pack with contradiction detection if enabled
-            if get_feature_flag("retrieval.contradictions_pack", default=False):
-                packing_result = pack_with_contradictions(
-                    context=selection_result.context,
-                    ranked_ids=selection_result.ranked_ids,
-                    top_m=10
-                )
-                retrieved_chunks = packing_result.context
-                contradictions = packing_result.contradictions
-                contradiction_score = packing_result.contradiction_score
+            if use_contradictions:
+                try:
+                    packing_result = pack_with_contradictions(
+                        context=selection_result.context,
+                        ranked_ids=selection_result.ranked_ids,
+                        top_m=10
+                    )
+                    retrieved_chunks = packing_result.context
+                    contradictions = packing_result.contradictions
+                    contradiction_score = packing_result.contradiction_score
+                    print(f"Contradiction detection: found {len(contradictions)} contradictions")
+                except Exception as e:
+                    print(f"Contradiction detection failed, proceeding without: {e}")
+                    retrieved_chunks = selection_result.context
+                    contradictions = []
+                    contradiction_score = 0.0
             else:
                 retrieved_chunks = selection_result.context
                 contradictions = []
                 contradiction_score = 0.0
             
             # Calculate lift score if using LiftScore ranking
-            lift_score = None
-            if get_feature_flag("retrieval.liftscore", default=False):
-                lift_scores = [item.get("lift_score", 0.0) for item in retrieved_chunks if "lift_score" in item]
-                if lift_scores:
-                    lift_score = sum(lift_scores) / len(lift_scores)
+            if use_liftscore:
+                try:
+                    lift_scores = [item.get("lift_score", 0.0) for item in retrieved_chunks if "lift_score" in item]
+                    if lift_scores:
+                        lift_score = sum(lift_scores) / len(lift_scores)
+                        print(f"LiftScore calculation: average={lift_score:.3f}")
+                except Exception as e:
+                    print(f"LiftScore calculation failed: {e}")
+                    lift_score = None
+            
+            print(f"Dual retrieval successful: {len(retrieved_chunks)} chunks retrieved")
             
         except Exception as e:
-            print(f"Dual retrieval failed, falling back to legacy: {e}")
+            retrieval_error = str(e)
+            print(f"Dual retrieval failed ({retrieval_error}), falling back to legacy retrieval")
             # Fallback to legacy retrieval
+            try:
+                retrieved_meta = _retrieve(
+                    sb,
+                    index,
+                    body.prompt,
+                    top_k_per_type=int(os.getenv("TOPK_PER_TYPE", "8"))
+                )
+                retrieved_chunks = _pack_context(sb, retrieved_meta)
+                contradictions = []
+                contradiction_score = 0.0
+                lift_score = None
+                selection_result = None
+                print(f"Legacy retrieval fallback successful: {len(retrieved_chunks)} chunks retrieved")
+            except Exception as legacy_error:
+                print(f"Legacy retrieval also failed: {legacy_error}")
+                # Final fallback - return empty results
+                retrieved_chunks = []
+                contradictions = []
+                contradiction_score = 0.0
+                lift_score = None
+                selection_result = None
+    else:
+        # Use legacy retrieval
+        print("Using legacy retrieval system")
+        try:
             retrieved_meta = _retrieve(
                 sb,
                 index,
@@ -276,19 +354,15 @@ def chat_chat_post(
             contradiction_score = 0.0
             lift_score = None
             selection_result = None
-    else:
-        # Use legacy retrieval
-        retrieved_meta = _retrieve(
-            sb,
-            index,
-            body.prompt,
-            top_k_per_type=int(os.getenv("TOPK_PER_TYPE", "8"))
-        )
-        retrieved_chunks = _pack_context(sb, retrieved_meta)
-        contradictions = []
-        contradiction_score = 0.0
-        lift_score = None
-        selection_result = None
+            print(f"Legacy retrieval successful: {len(retrieved_chunks)} chunks retrieved")
+        except Exception as e:
+            print(f"Legacy retrieval failed: {e}")
+            # Final fallback - return empty results
+            retrieved_chunks = []
+            contradictions = []
+            contradiction_score = 0.0
+            lift_score = None
+            selection_result = None
     
     retrieval_time = (time.time() - retrieval_start) * 1000  # Convert to milliseconds
 
@@ -307,7 +381,7 @@ def chat_chat_post(
     context_ids = [chunk["id"] for chunk in retrieved_chunks]
 
     # Answer
-    draft = _answer_json(body.prompt, context_for_llm)
+    draft = _answer_json(body.prompt, context_for_llm, contradictions)
     if not isinstance(draft, dict):
         raise HTTPException(status_code=500, detail="Answerer returned non-JSON")
 

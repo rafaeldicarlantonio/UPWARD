@@ -19,6 +19,10 @@ except ImportError:
             def decorator(func):
                 return func
             return decorator
+        def exception_handler(self, *args, **kwargs):
+            def decorator(func):
+                return func
+            return decorator
     
     class HTTPException(Exception):
         def __init__(self, status_code, detail):

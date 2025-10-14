@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 # Add workspace to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-# Mock the config loading before importing
+# Mock the config loading and dependencies before importing
 with patch.dict(os.environ, {
     'OPENAI_API_KEY': 'test-key',
     'SUPABASE_URL': 'https://test.supabase.co',
@@ -18,6 +18,11 @@ with patch.dict(os.environ, {
     'PINECONE_EXPLICATE_INDEX': 'test-explicate',
     'PINECONE_IMPLICATE_INDEX': 'test-implicate',
 }):
+    # Mock supabase dependency at the module level
+    sys.modules['supabase'] = MagicMock()
+    sys.modules['supabase'].create_client = MagicMock()
+    sys.modules['supabase'].Client = MagicMock()
+    
     from core.aura.bridge import (
         AuraProject,
         AuraTask,
@@ -316,7 +321,7 @@ class TestTaskGenerator(unittest.TestCase):
         
         self.assertIn("AI implementation increases efficiency by 40%", description)
         self.assertIn("Internal Research", description)
-        self.assertIn("data collection", description.lower())
+        self.assertIn("gathering comprehensive data", description.lower())
 
 class TestAuraBridge(unittest.TestCase):
     """Test AuraBridge functionality."""

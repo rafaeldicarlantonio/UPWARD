@@ -2,6 +2,7 @@
 import os
 import json
 import datetime
+import time
 from uuid import uuid4
 from typing import Optional, List, Dict, Any, Literal
 
@@ -17,6 +18,10 @@ from guardrails.redteam import review_answer
 from auth.light_identity import ensure_user  # <-- attribution helper
 from memory.graph import expand_entities
 from extractors.signals import extract_signals_from_text  # <-- NEW: fallback extractor
+from core.selection import SelectionFactory
+from core.packing import pack_with_contradictions
+from core.ledger import log_chat_request
+from feature_flags import get_feature_flag
 
 router = APIRouter()
 client = OpenAI()
@@ -214,14 +219,78 @@ def chat_chat_post(
             # Local fallback
             session_id = str(uuid4())
 
-    # Retrieval
-    retrieved_meta = _retrieve(
-        sb,
-        index,
-        body.prompt,
-        top_k_per_type=int(os.getenv("TOPK_PER_TYPE", "8"))
-    )
-    retrieved_chunks = _pack_context(sb, retrieved_meta)
+    # Retrieval - use new dual retrieval system if enabled
+    retrieval_start = time.time()
+    
+    if get_feature_flag("retrieval.dual_index", default=False):
+        # Use new dual retrieval system
+        try:
+            # Create selector based on feature flags
+            selector = SelectionFactory.create_selector()
+            
+            # Generate embedding
+            embedding = _embed(body.prompt)
+            
+            # Select content using the appropriate strategy
+            selection_result = selector.select(
+                query=body.prompt,
+                embedding=embedding,
+                caller_role=body.role,
+                explicate_top_k=int(os.getenv("TOPK_PER_TYPE", "16")),
+                implicate_top_k=8
+            )
+            
+            # Pack with contradiction detection if enabled
+            if get_feature_flag("retrieval.contradictions_pack", default=False):
+                packing_result = pack_with_contradictions(
+                    context=selection_result.context,
+                    ranked_ids=selection_result.ranked_ids,
+                    top_m=10
+                )
+                retrieved_chunks = packing_result.context
+                contradictions = packing_result.contradictions
+                contradiction_score = packing_result.contradiction_score
+            else:
+                retrieved_chunks = selection_result.context
+                contradictions = []
+                contradiction_score = 0.0
+            
+            # Calculate lift score if using LiftScore ranking
+            lift_score = None
+            if get_feature_flag("retrieval.liftscore", default=False):
+                lift_scores = [item.get("lift_score", 0.0) for item in retrieved_chunks if "lift_score" in item]
+                if lift_scores:
+                    lift_score = sum(lift_scores) / len(lift_scores)
+            
+        except Exception as e:
+            print(f"Dual retrieval failed, falling back to legacy: {e}")
+            # Fallback to legacy retrieval
+            retrieved_meta = _retrieve(
+                sb,
+                index,
+                body.prompt,
+                top_k_per_type=int(os.getenv("TOPK_PER_TYPE", "8"))
+            )
+            retrieved_chunks = _pack_context(sb, retrieved_meta)
+            contradictions = []
+            contradiction_score = 0.0
+            lift_score = None
+            selection_result = None
+    else:
+        # Use legacy retrieval
+        retrieved_meta = _retrieve(
+            sb,
+            index,
+            body.prompt,
+            top_k_per_type=int(os.getenv("TOPK_PER_TYPE", "8"))
+        )
+        retrieved_chunks = _pack_context(sb, retrieved_meta)
+        contradictions = []
+        contradiction_score = 0.0
+        lift_score = None
+        selection_result = None
+    
+    retrieval_time = (time.time() - retrieval_start) * 1000  # Convert to milliseconds
 
     # 🔗 Graph Expansion (3 hops) - non-fatal
     try:
@@ -308,11 +377,15 @@ def chat_chat_post(
         autosave = {"saved": False, "items": []}
 
     # Persist messages (best-effort)
+    message_id = None
     try:
-        sb.table("messages").insert(
+        # Insert user message
+        user_msg_result = sb.table("messages").insert(
             {"session_id": session_id, "role": "user", "content": body.prompt, "model": os.getenv("CHAT_MODEL")}
         ).execute()
-        sb.table("messages").insert(
+        
+        # Insert assistant message
+        assistant_msg_result = sb.table("messages").insert(
             {
                 "session_id": session_id,
                 "role": "assistant",
@@ -321,8 +394,38 @@ def chat_chat_post(
                 "latency_ms": int((datetime.datetime.utcnow() - t0).total_seconds() * 1000),
             }
         ).execute()
-    except Exception:
-        pass
+        
+        # Get the assistant message ID for tracing
+        if assistant_msg_result.data and len(assistant_msg_result.data) > 0:
+            message_id = assistant_msg_result.data[0]["id"]
+            
+    except Exception as e:
+        print(f"Failed to persist messages: {e}")
+    
+    # Log rheomode run if dual_index is enabled
+    if get_feature_flag("retrieval.dual_index", default=False) and message_id and selection_result:
+        try:
+            total_time = (datetime.datetime.utcnow() - t0).total_seconds() * 1000
+            timing = {
+                "total_ms": total_time,
+                "retrieval_ms": retrieval_time,
+                "graph_expansion_ms": 0,  # Could be calculated if needed
+                "llm_ms": total_time - retrieval_time
+            }
+            
+            log_chat_request(
+                session_id=session_id,
+                message_id=message_id,
+                role=body.role or "user",
+                query=body.prompt,
+                selection_result=selection_result,
+                contradictions=contradictions,
+                timing=timing,
+                lift_score=lift_score,
+                contradiction_score=contradiction_score
+            )
+        except Exception as e:
+            print(f"Failed to log rheomode run: {e}")
 
     return {
         "session_id": session_id,

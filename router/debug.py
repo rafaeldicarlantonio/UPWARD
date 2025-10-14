@@ -7,6 +7,7 @@ from vendors.supabase_client import supabase
 from schemas.api import DebugMemoriesResponse
 from config import load_config
 from feature_flags import get_all_flags
+from core.ledger import RheomodeLedger
 
 router = APIRouter(tags=["debug"])
 
@@ -65,3 +66,42 @@ def debug_config(x_api_key: Optional[str] = Header(None)):
             "status": "error",
             "error": str(e)
         }
+
+@router.get("/debug/retrieval_trace")
+def debug_retrieval_trace(
+    message_id: str = Query(..., description="Message ID to get trace for"),
+    x_api_key: Optional[str] = Header(None)
+):
+    """Get the last rheomode run trace for a given message ID."""
+    _require_key(x_api_key)
+    
+    try:
+        ledger = RheomodeLedger()
+        run = ledger.get_run_by_message_id(message_id)
+        
+        if not run:
+            raise HTTPException(status_code=404, detail="No trace found for message ID")
+        
+        # Convert to response format
+        response = {
+            "id": run.id,
+            "session_id": run.session_id,
+            "message_id": run.message_id,
+            "role": run.role,
+            "created_at": run.created_at.isoformat() if run.created_at else None,
+            "lift_score": run.lift_score,
+            "contradiction_score": run.contradiction_score,
+            "process_trace_summary": run.process_trace_summary
+        }
+        
+        # Add full process trace if available
+        if run.process_trace:
+            from dataclasses import asdict
+            response["process_trace"] = asdict(run.process_trace)
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching trace: {str(e)}")

@@ -26,6 +26,14 @@ DEFAULTS = {
     "LEDGER_MAX_TRACE_BYTES": 100_000,
     "LEDGER_SUMMARY_MAX_LINES": 4,
     "ORCHESTRATION_TIME_BUDGET_MS": 400,
+    
+    # Factare configuration
+    "FACTARE_ENABLED": False,
+    "FACTARE_ALLOW_EXTERNAL": False,
+    "FACTARE_EXTERNAL_TIMEOUT_MS": 2000,
+    "FACTARE_MAX_SOURCES_INTERNAL": 24,
+    "FACTARE_MAX_SOURCES_EXTERNAL": 8,
+    "HYPOTHESES_PARETO_THRESHOLD": 0.65,
 }
 
 def load_config():
@@ -95,6 +103,38 @@ def load_config():
                     raise ValueError("ORCHESTRATION_TIME_BUDGET_MS must be non-negative")
             except (ValueError, TypeError):
                 raise RuntimeError(f"ORCHESTRATION_TIME_BUDGET_MS must be a non-negative integer, got: {val}")
+        elif k == "FACTARE_ENABLED":
+            val = val.lower() in ('true', '1', 'yes', 'on') if isinstance(val, str) else bool(val)
+        elif k == "FACTARE_ALLOW_EXTERNAL":
+            val = val.lower() in ('true', '1', 'yes', 'on') if isinstance(val, str) else bool(val)
+        elif k == "FACTARE_EXTERNAL_TIMEOUT_MS":
+            try:
+                val = int(val)
+                if val < 0:
+                    raise ValueError("FACTARE_EXTERNAL_TIMEOUT_MS must be non-negative")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"FACTARE_EXTERNAL_TIMEOUT_MS must be a non-negative integer, got: {val}")
+        elif k == "FACTARE_MAX_SOURCES_INTERNAL":
+            try:
+                val = int(val)
+                if val < 0:
+                    raise ValueError("FACTARE_MAX_SOURCES_INTERNAL must be non-negative")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"FACTARE_MAX_SOURCES_INTERNAL must be a non-negative integer, got: {val}")
+        elif k == "FACTARE_MAX_SOURCES_EXTERNAL":
+            try:
+                val = int(val)
+                if val < 0:
+                    raise ValueError("FACTARE_MAX_SOURCES_EXTERNAL must be non-negative")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"FACTARE_MAX_SOURCES_EXTERNAL must be a non-negative integer, got: {val}")
+        elif k == "HYPOTHESES_PARETO_THRESHOLD":
+            try:
+                val = float(val)
+                if not 0.0 <= val <= 1.0:
+                    raise ValueError("HYPOTHESES_PARETO_THRESHOLD must be between 0.0 and 1.0")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"HYPOTHESES_PARETO_THRESHOLD must be a float between 0.0 and 1.0, got: {val}")
         
         cfg[k] = val
 

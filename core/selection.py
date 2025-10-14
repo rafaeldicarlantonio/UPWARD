@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from feature_flags import get_feature_flag
 from app.services.vector_store import VectorStore
 from core.ranking import LiftScoreRanker
+from core.metrics import RetrievalMetrics, time_operation, record_feature_flag_usage
 
 MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "2000"))
 
@@ -49,13 +50,17 @@ class LegacySelector(SelectionStrategy):
                **kwargs) -> SelectionResult:
         """Legacy selection using single index."""
         
-        # Query the main index (explicate)
-        hits = self.vector_store.query_explicit(
-            embedding=embedding,
-            top_k=kwargs.get('top_k', 16),
-            filter=kwargs.get('filter'),
-            caller_role=caller_role
-        )
+        # Record feature flag usage
+        record_feature_flag_usage("retrieval.dual_index", False)
+        
+        with time_operation("legacy_query_total"):
+            # Query the main index (explicate)
+            hits = self.vector_store.query_explicit(
+                embedding=embedding,
+                top_k=kwargs.get('top_k', 16),
+                filter=kwargs.get('filter'),
+                caller_role=caller_role
+            )
         
         # Convert hits to records format for compatibility
         records = []

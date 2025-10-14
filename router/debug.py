@@ -1,10 +1,12 @@
 from __future__ import annotations
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 from fastapi import APIRouter, Header, HTTPException, Query
 
 from vendors.supabase_client import supabase
 from schemas.api import DebugMemoriesResponse
+from config import load_config
+from feature_flags import get_all_flags
 
 router = APIRouter(tags=["debug"])
 
@@ -30,3 +32,36 @@ def debug_memories(
     r = q.execute()
     out = [{"id": row["id"], "type": row.get("type"), "title": row.get("title"), "created_at": row.get("created_at")} for row in (r.data or [])]
     return {"items": out}
+
+@router.get("/debug/config")
+def debug_config(x_api_key: Optional[str] = Header(None)):
+    """Show current configuration and feature flags."""
+    _require_key(x_api_key)
+    
+    try:
+        # Load configuration (this will fail if required env vars are missing)
+        config = load_config()
+        
+        # Get feature flags
+        flags = get_all_flags()
+        
+        # Return sanitized config (hide sensitive values)
+        sanitized_config = {}
+        for key, value in config.items():
+            if any(sensitive in key.upper() for sensitive in ['KEY', 'SECRET', 'PASSWORD', 'TOKEN']):
+                sanitized_config[key] = "***REDACTED***"
+            else:
+                sanitized_config[key] = value
+        
+        return {
+            "config": sanitized_config,
+            "feature_flags": flags,
+            "status": "ok"
+        }
+    except Exception as e:
+        return {
+            "config": {},
+            "feature_flags": {},
+            "status": "error",
+            "error": str(e)
+        }

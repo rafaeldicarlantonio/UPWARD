@@ -8,6 +8,8 @@ REQUIRED = [
     "SUPABASE_URL",
     "PINECONE_API_KEY",
     "PINECONE_INDEX",
+    "PINECONE_EXPLICATE_INDEX",
+    "PINECONE_IMPLICATE_INDEX",
 ]
 
 # Optional knobs with defaults that won't sandbag you at runtime.
@@ -25,9 +27,28 @@ def load_config():
     """
     missing = [k for k in REQUIRED if not os.getenv(k)]
     if missing:
-        raise RuntimeError(f"Missing env: {', '.join(missing)}")
+        missing_list = ', '.join(missing)
+        raise RuntimeError(
+            f"Missing required environment variables: {missing_list}. "
+            f"Please check your .env file and ensure all required variables are set. "
+            f"See env.sample for reference."
+        )
 
     cfg = {k: os.getenv(k) for k in REQUIRED}
+
+    # Validate Pinecone indices are different
+    if cfg.get("PINECONE_INDEX") == cfg.get("PINECONE_EXPLICATE_INDEX"):
+        raise RuntimeError(
+            "PINECONE_INDEX and PINECONE_EXPLICATE_INDEX must be different indices"
+        )
+    if cfg.get("PINECONE_INDEX") == cfg.get("PINECONE_IMPLICATE_INDEX"):
+        raise RuntimeError(
+            "PINECONE_INDEX and PINECONE_IMPLICATE_INDEX must be different indices"
+        )
+    if cfg.get("PINECONE_EXPLICATE_INDEX") == cfg.get("PINECONE_IMPLICATE_INDEX"):
+        raise RuntimeError(
+            "PINECONE_EXPLICATE_INDEX and PINECONE_IMPLICATE_INDEX must be different indices"
+        )
 
     for k, v in DEFAULTS.items():
         val = os.getenv(k, v)

@@ -9,6 +9,10 @@ DEFAULT_FLAGS = {
     "retrieval.dual_index": False,
     "retrieval.liftscore": False,
     "retrieval.contradictions_pack": False,
+    
+    # REDO/ledger feature flags
+    "orchestrator.redo_enabled": False,
+    "ledger.enabled": False,
 }
 
 def get_feature_flag(flag_name: str, default: bool = False) -> bool:

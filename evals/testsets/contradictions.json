@@ -7,7 +7,10 @@
     "expected_contradictions": true,
     "contradiction_subjects": ["remote work", "policy"],
     "max_latency_ms": 500,
-    "category": "contradictions"
+    "category": "contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.7,
+    "test_type": "policy_disagreement"
   },
   {
     "id": "contradiction_002",
@@ -17,7 +20,10 @@
     "expected_contradictions": true,
     "contradiction_subjects": ["budget", "allocation"],
     "max_latency_ms": 500,
-    "category": "contradictions"
+    "category": "contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.6,
+    "test_type": "resource_disagreement"
   },
   {
     "id": "contradiction_003",
@@ -27,7 +33,10 @@
     "expected_contradictions": true,
     "contradiction_subjects": ["requirements", "system"],
     "max_latency_ms": 500,
-    "category": "contradictions"
+    "category": "contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.8,
+    "test_type": "technical_disagreement"
   },
   {
     "id": "contradiction_004",
@@ -37,7 +46,10 @@
     "expected_contradictions": true,
     "contradiction_subjects": ["timeline", "completion"],
     "max_latency_ms": 500,
-    "category": "contradictions"
+    "category": "contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.5,
+    "test_type": "temporal_disagreement"
   },
   {
     "id": "contradiction_005",
@@ -47,7 +59,49 @@
     "expected_contradictions": true,
     "contradiction_subjects": ["client", "relationship"],
     "max_latency_ms": 500,
-    "category": "contradictions"
+    "category": "contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.6,
+    "test_type": "strategic_disagreement"
+  },
+  {
+    "id": "contradiction_006",
+    "prompt": "What is the best approach for data security?",
+    "description": "Should detect contradictions between different security approaches",
+    "must_include": ["data", "security"],
+    "expected_contradictions": true,
+    "contradiction_subjects": ["security", "approach"],
+    "max_latency_ms": 500,
+    "category": "contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.7,
+    "test_type": "security_disagreement"
+  },
+  {
+    "id": "contradiction_007",
+    "prompt": "How should we handle team performance evaluation?",
+    "description": "Should detect contradictions between different performance evaluation methods",
+    "must_include": ["performance", "evaluation"],
+    "expected_contradictions": true,
+    "contradiction_subjects": ["performance", "evaluation"],
+    "max_latency_ms": 500,
+    "category": "contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.6,
+    "test_type": "methodology_disagreement"
+  },
+  {
+    "id": "contradiction_008",
+    "prompt": "What is the recommended approach for change management?",
+    "description": "Should detect contradictions between different change management strategies",
+    "must_include": ["change", "management"],
+    "expected_contradictions": true,
+    "contradiction_subjects": ["change", "management"],
+    "max_latency_ms": 500,
+    "category": "contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.5,
+    "test_type": "process_disagreement"
   },
   {
     "id": "no_contradiction_001",
@@ -56,7 +110,10 @@
     "must_include": ["mission", "statement"],
     "expected_contradictions": false,
     "max_latency_ms": 500,
-    "category": "no_contradictions"
+    "category": "no_contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.0,
+    "test_type": "factual_consistency"
   },
   {
     "id": "no_contradiction_002",
@@ -65,6 +122,33 @@
     "must_include": ["office", "hours"],
     "expected_contradictions": false,
     "max_latency_ms": 500,
-    "category": "no_contradictions"
+    "category": "no_contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.0,
+    "test_type": "factual_consistency"
+  },
+  {
+    "id": "no_contradiction_003",
+    "prompt": "What is the company's address?",
+    "description": "Should NOT detect contradictions for basic factual information",
+    "must_include": ["address"],
+    "expected_contradictions": false,
+    "max_latency_ms": 500,
+    "category": "no_contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.0,
+    "test_type": "factual_consistency"
+  },
+  {
+    "id": "no_contradiction_004",
+    "prompt": "What is the current version of the software?",
+    "description": "Should NOT detect contradictions for version information",
+    "must_include": ["version", "software"],
+    "expected_contradictions": false,
+    "max_latency_ms": 500,
+    "category": "no_contradictions",
+    "golden_case": true,
+    "expected_contradiction_score": 0.0,
+    "test_type": "factual_consistency"
   }
 ]

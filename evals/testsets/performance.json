@@ -6,7 +6,11 @@
     "must_include": ["leadership"],
     "max_latency_ms": 500,
     "expected_p95_ms": 500,
-    "category": "performance"
+    "category": "performance",
+    "test_type": "basic_retrieval",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
   },
   {
     "id": "perf_002",
@@ -15,7 +19,11 @@
     "must_include": ["conflict", "resolution"],
     "max_latency_ms": 500,
     "expected_p95_ms": 500,
-    "category": "performance"
+    "category": "performance",
+    "test_type": "implicate_retrieval",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
   },
   {
     "id": "perf_003",
@@ -24,7 +32,11 @@
     "must_include": ["values", "decision"],
     "max_latency_ms": 500,
     "expected_p95_ms": 500,
-    "category": "performance"
+    "category": "performance",
+    "test_type": "concept_retrieval",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
   },
   {
     "id": "perf_004",
@@ -33,7 +45,11 @@
     "must_include": ["innovation", "change"],
     "max_latency_ms": 500,
     "expected_p95_ms": 500,
-    "category": "performance"
+    "category": "performance",
+    "test_type": "complex_query",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
   },
   {
     "id": "perf_005",
@@ -42,6 +58,101 @@
     "must_include": ["communication", "remote"],
     "max_latency_ms": 500,
     "expected_p95_ms": 500,
-    "category": "performance"
+    "category": "performance",
+    "test_type": "multi_entity",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
+  },
+  {
+    "id": "perf_006",
+    "prompt": "What are the best practices for data analysis and interpretation?",
+    "description": "Performance test for analytical query processing",
+    "must_include": ["data", "analysis"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance",
+    "test_type": "analytical_query",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
+  },
+  {
+    "id": "perf_007",
+    "prompt": "How should we approach stakeholder management and engagement?",
+    "description": "Performance test for relationship-focused queries",
+    "must_include": ["stakeholder", "engagement"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance",
+    "test_type": "relationship_query",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
+  },
+  {
+    "id": "perf_008",
+    "prompt": "What are the key considerations for project risk assessment?",
+    "description": "Performance test for risk management queries",
+    "must_include": ["risk", "assessment"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance",
+    "test_type": "risk_query",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
+  },
+  {
+    "id": "perf_009",
+    "prompt": "How do we ensure quality assurance in our deliverables?",
+    "description": "Performance test for quality-focused queries",
+    "must_include": ["quality", "assurance"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance",
+    "test_type": "quality_query",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
+  },
+  {
+    "id": "perf_010",
+    "prompt": "What strategies work best for team collaboration and coordination?",
+    "description": "Performance test for collaboration queries",
+    "must_include": ["collaboration", "coordination"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance",
+    "test_type": "collaboration_query",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": false
+  },
+  {
+    "id": "perf_stress_001",
+    "prompt": "What are the comprehensive strategies for organizational transformation and digital innovation?",
+    "description": "Stress test for complex multi-concept queries",
+    "must_include": ["transformation", "innovation"],
+    "max_latency_ms": 800,
+    "expected_p95_ms": 600,
+    "category": "performance",
+    "test_type": "stress_test",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": true
+  },
+  {
+    "id": "perf_stress_002",
+    "prompt": "How should we integrate artificial intelligence, machine learning, and data science for business optimization?",
+    "description": "Stress test for technical multi-domain queries",
+    "must_include": ["artificial", "intelligence", "optimization"],
+    "max_latency_ms": 800,
+    "expected_p95_ms": 600,
+    "category": "performance",
+    "test_type": "stress_test",
+    "expected_explicate_k": 16,
+    "expected_implicate_k": 8,
+    "flaky": true
   }
 ]

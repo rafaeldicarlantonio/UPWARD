@@ -7,7 +7,10 @@
     "must_cite_any": ["concept:"],
     "expected_implicate_rank": 1,
     "max_latency_ms": 500,
-    "category": "implicate_lift"
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.7,
+    "test_type": "concept_expansion"
   },
   {
     "id": "implicate_lift_002", 
@@ -17,7 +20,10 @@
     "must_cite_any": ["concept:"],
     "expected_implicate_rank": 1,
     "max_latency_ms": 500,
-    "category": "implicate_lift"
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.6,
+    "test_type": "process_knowledge"
   },
   {
     "id": "implicate_lift_003",
@@ -27,7 +33,10 @@
     "must_cite_any": ["concept:"],
     "expected_implicate_rank": 1,
     "max_latency_ms": 500,
-    "category": "implicate_lift"
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.8,
+    "test_type": "value_system"
   },
   {
     "id": "implicate_lift_004",
@@ -37,7 +46,10 @@
     "must_cite_any": ["concept:"],
     "expected_implicate_rank": 1,
     "max_latency_ms": 500,
-    "category": "implicate_lift"
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.5,
+    "test_type": "strategic_approach"
   },
   {
     "id": "implicate_lift_005",
@@ -47,6 +59,74 @@
     "must_cite_any": ["concept:"],
     "expected_implicate_rank": 1,
     "max_latency_ms": 500,
-    "category": "implicate_lift"
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.6,
+    "test_type": "methodology"
+  },
+  {
+    "id": "implicate_lift_006",
+    "prompt": "What are the best practices for data analysis and interpretation?",
+    "description": "Should surface implicate knowledge about analytical methodologies from concept entities",
+    "must_include": ["data", "analysis"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.7,
+    "test_type": "methodology"
+  },
+  {
+    "id": "implicate_lift_007",
+    "prompt": "How should we approach stakeholder management and engagement?",
+    "description": "Should surface implicate knowledge about stakeholder relations from concept entities",
+    "must_include": ["stakeholder", "engagement"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.6,
+    "test_type": "relationship_management"
+  },
+  {
+    "id": "implicate_lift_008",
+    "prompt": "What are the key considerations for project risk assessment?",
+    "description": "Should surface implicate knowledge about risk management from concept entities",
+    "must_include": ["risk", "assessment"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.5,
+    "test_type": "risk_management"
+  },
+  {
+    "id": "implicate_lift_009",
+    "prompt": "How do we ensure quality assurance in our deliverables?",
+    "description": "Should surface implicate knowledge about quality processes from concept entities",
+    "must_include": ["quality", "assurance"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.7,
+    "test_type": "process_quality"
+  },
+  {
+    "id": "implicate_lift_010",
+    "prompt": "What strategies work best for team collaboration and coordination?",
+    "description": "Should surface implicate knowledge about collaboration methods from concept entities",
+    "must_include": ["collaboration", "coordination"],
+    "must_cite_any": ["concept:"],
+    "expected_implicate_rank": 1,
+    "max_latency_ms": 500,
+    "category": "implicate_lift",
+    "golden_case": true,
+    "expected_lift_score": 0.6,
+    "test_type": "team_dynamics"
   }
 ]

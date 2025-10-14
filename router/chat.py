@@ -22,6 +22,7 @@ from core.selection import SelectionFactory
 from core.packing import pack_with_contradictions
 from core.ledger import log_chat_request
 from feature_flags import get_feature_flag
+from core.metrics import record_api_call, record_error, time_operation, RetrievalMetrics
 
 router = APIRouter()
 client = OpenAI()
@@ -78,18 +79,25 @@ def _embed(text: str) -> List[float]:
 
 
 def _retrieve(sb, index, query: str, top_k_per_type: int = 8) -> List[Dict[str, Any]]:
-    vec = _embed(query)
-    namespaces = ["semantic", "episodic", "procedural"]
-    hits: List[Dict[str, Any]] = []
+    with time_operation("legacy_retrieval"):
+        vec = _embed(query)
+        namespaces = ["semantic", "episodic", "procedural"]
+        hits: List[Dict[str, Any]] = []
 
-    for ns in namespaces:
-        res = safe_query(index, vector=vec, top_k=top_k_per_type, include_metadata=True, namespace=ns)
-        for m in res.matches:
-            md = m.metadata or {}
-            mem_id = (md.get("id") or (m.id or "")).replace("mem_", "")
-            if not mem_id:
-                continue
-            hits.append({"memory_id": mem_id, "namespace": ns, "score": float(m.score or 0.0)})
+        for ns in namespaces:
+            res = safe_query(index, vector=vec, top_k=top_k_per_type, include_metadata=True, namespace=ns)
+            for m in res.matches:
+                md = m.metadata or {}
+                mem_id = (md.get("id") or (m.id or "")).replace("mem_", "")
+                if not mem_id:
+                    continue
+                hits.append({"memory_id": mem_id, "namespace": ns, "score": float(m.score or 0.0)})
+            
+            # Record cache hit/miss for this namespace
+            if res.matches:
+                RetrievalMetrics.record_cache_hit(f"pinecone_{ns}")
+            else:
+                RetrievalMetrics.record_cache_miss(f"pinecone_{ns}")
 
     ids = list({h["memory_id"] for h in hits})
     by_id: Dict[str, Dict[str, Any]] = {}
@@ -220,10 +228,13 @@ def chat_chat_post(
     x_api_key: Optional[str] = Header(None),
     x_user_email: Optional[str] = Header(None),  # attribution header
 ):
-    _auth(x_api_key)
-    sb = get_client()
-    index = get_index()
-    t0 = datetime.datetime.utcnow()
+    start_time = time.time()
+    
+    try:
+        _auth(x_api_key)
+        sb = get_client()
+        index = get_index()
+        t0 = datetime.datetime.utcnow()
 
     # Resolve/ensure user (best-effort)
     author_user_id = ensure_user(sb=sb, email=x_user_email)
@@ -501,12 +512,23 @@ def chat_chat_post(
         except Exception as e:
             print(f"Failed to log rheomode run: {e}")
 
-    return {
-        "session_id": session_id,
-        "answer": draft.get("answer") or "",
-        "citations": draft.get("citations") or [],
-        "guidance_questions": draft.get("guidance_questions") or [],
-        "autosave": autosave,
-        "redteam": verdict,
-        "metrics": {"latency_ms": int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)},
-    }
+        # Record API call metrics
+        total_latency_ms = (time.time() - start_time) * 1000
+        record_api_call("chat", "POST", 200, total_latency_ms)
+        
+        return {
+            "session_id": session_id,
+            "answer": draft.get("answer") or "",
+            "citations": draft.get("citations") or [],
+            "guidance_questions": draft.get("guidance_questions") or [],
+            "autosave": autosave,
+            "redteam": verdict,
+            "metrics": {"latency_ms": int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)},
+        }
+    
+    except Exception as e:
+        # Record error metrics
+        total_latency_ms = (time.time() - start_time) * 1000
+        record_error("chat_api_error", str(e))
+        record_api_call("chat", "POST", 500, total_latency_ms)
+        raise

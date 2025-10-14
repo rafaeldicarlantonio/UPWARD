@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
 from feature_flags import get_feature_flag
+from core.metrics import RetrievalMetrics, time_operation
 
 MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "2000"))
 
@@ -43,47 +44,56 @@ class LiftScoreRanker:
         
         LiftScore = base_cosine + α*recency + β*graph_coherence - γ*contradiction_penalty + δ*role_fit
         """
-        scored_records = []
-        
-        for record in records:
-            # Base cosine similarity (from vector search)
-            base_cosine = record.get("score", 0.0)
+        with time_operation("liftscore_calculation"):
+            scored_records = []
             
-            # Recency score
-            recency = self._calculate_recency_score(record.get("created_at"))
-            
-            # Graph coherence (for implicate records)
-            graph_coherence = self._calculate_graph_coherence(record)
-            
-            # Contradiction penalty
-            contradiction_penalty = self._calculate_contradiction_penalty(record)
-            
-            # Role fit
-            role_fit = self._calculate_role_fit(record, caller_role)
-            
-            # Calculate LiftScore
-            lift_score = (
-                base_cosine +
-                self.weights.alpha * recency +
-                self.weights.beta * graph_coherence -
-                self.weights.gamma * contradiction_penalty +
-                self.weights.delta * role_fit
-            )
-            
-            # Store scoring breakdown for debugging
-            record["_scoring"] = {
-                "base_cosine": base_cosine,
-                "recency": recency,
-                "graph_coherence": graph_coherence,
-                "contradiction_penalty": contradiction_penalty,
-                "role_fit": role_fit,
-                "lift_score": lift_score
-            }
-            
-            scored_records.append((lift_score, record))
+            for record in records:
+                # Base cosine similarity (from vector search)
+                base_cosine = record.get("score", 0.0)
+                
+                # Recency score
+                recency = self._calculate_recency_score(record.get("created_at"))
+                
+                # Graph coherence (for implicate records)
+                graph_coherence = self._calculate_graph_coherence(record)
+                
+                # Contradiction penalty
+                contradiction_penalty = self._calculate_contradiction_penalty(record)
+                
+                # Role fit
+                role_fit = self._calculate_role_fit(record, caller_role)
+                
+                # Calculate LiftScore
+                lift_score = (
+                    base_cosine +
+                    self.weights.alpha * recency +
+                    self.weights.beta * graph_coherence -
+                    self.weights.gamma * contradiction_penalty +
+                    self.weights.delta * role_fit
+                )
+                
+                # Store scoring breakdown for debugging
+                record["_scoring"] = {
+                    "base_cosine": base_cosine,
+                    "recency": recency,
+                    "graph_coherence": graph_coherence,
+                    "contradiction_penalty": contradiction_penalty,
+                    "role_fit": role_fit,
+                    "lift_score": lift_score
+                }
+                
+                scored_records.append((lift_score, record))
         
         # Sort by LiftScore descending
         scored_records.sort(key=lambda x: x[0], reverse=True)
+        
+        # Record LiftScore metrics at different positions
+        for k, (score, record) in enumerate(scored_records[:10], 1):  # Record top 10
+            RetrievalMetrics.record_lift_score_at_k(k, score)
+            
+            # Record implicate rank if this is an implicate record
+            if record.get("source") == "implicate":
+                RetrievalMetrics.record_implicate_rank(k)
         
         # Pack into context
         context = []

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 
 from feature_flags import get_feature_flag
+from core.metrics import RetrievalMetrics, time_operation
 
 @dataclass
 class Contradiction:
@@ -80,26 +81,31 @@ class ContradictionDetector:
         if not get_feature_flag("retrieval.contradictions_pack", default=False):
             return []
         
-        # Take top M candidates
-        top_candidates = candidates[:top_m]
-        if len(top_candidates) < 2:
-            return []
-        
-        contradictions = []
-        
-        # Detect entity-based contradictions
-        entity_contradictions = self._detect_entity_contradictions(top_candidates)
-        contradictions.extend(entity_contradictions)
-        
-        # Detect memory-based contradictions
-        memory_contradictions = self._detect_memory_contradictions(top_candidates)
-        contradictions.extend(memory_contradictions)
-        
-        # Detect semantic contradictions
-        semantic_contradictions = self._detect_semantic_contradictions(top_candidates)
-        contradictions.extend(semantic_contradictions)
-        
-        return contradictions
+        with time_operation("contradiction_detection"):
+            # Take top M candidates
+            top_candidates = candidates[:top_m]
+            if len(top_candidates) < 2:
+                return []
+            
+            contradictions = []
+            
+            # Detect entity-based contradictions
+            entity_contradictions = self._detect_entity_contradictions(top_candidates)
+            contradictions.extend(entity_contradictions)
+            
+            # Detect memory-based contradictions
+            memory_contradictions = self._detect_memory_contradictions(top_candidates)
+            contradictions.extend(memory_contradictions)
+            
+            # Detect semantic contradictions
+            semantic_contradictions = self._detect_semantic_contradictions(top_candidates)
+            contradictions.extend(semantic_contradictions)
+            
+            # Record contradiction detection metrics
+            contradiction_score = self.calculate_contradiction_score(contradictions)
+            RetrievalMetrics.record_contradiction_detection(len(contradictions), contradiction_score)
+            
+            return contradictions
     
     def _detect_entity_contradictions(self, candidates: List[Dict[str, Any]]) -> List[Contradiction]:
         """Detect contradictions based on same subject entity + opposing predicates."""

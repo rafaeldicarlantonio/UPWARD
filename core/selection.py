@@ -75,8 +75,12 @@ class LegacySelector(SelectionStrategy):
                 "metadata": hit.metadata
             })
         
+        # Record legacy query metrics
+        RetrievalMetrics.record_legacy_query(0)  # Latency will be recorded by time_operation
+        
         # Apply legacy ranking
-        ranked_result = self._legacy_rank_and_pack(records, query)
+        with time_operation("legacy_ranking"):
+            ranked_result = self._legacy_rank_and_pack(records, query)
         
         # Generate reasons
         reasons = [f"Legacy ranking: score={hit.score:.3f}" for hit in hits.matches[:len(ranked_result["context"])]]
@@ -153,36 +157,52 @@ class DualSelector(SelectionStrategy):
                **kwargs) -> SelectionResult:
         """Dual index selection with graph expansion."""
         
-        # Query both indices
-        explicate_hits = self.vector_store.query_explicit(
-            embedding=embedding,
-            top_k=kwargs.get('explicate_top_k', 16),
-            filter=kwargs.get('filter'),
-            caller_role=caller_role
-        )
+        # Record feature flag usage
+        record_feature_flag_usage("retrieval.dual_index", True)
         
-        implicate_hits = self.vector_store.query_implicate(
-            embedding=embedding,
-            top_k=kwargs.get('implicate_top_k', 8),
-            filter=kwargs.get('filter'),
-            caller_role=caller_role
-        )
+        explicate_k = kwargs.get('explicate_top_k', 16)
+        implicate_k = kwargs.get('implicate_top_k', 8)
+        
+        with time_operation("dual_query_total", labels={"explicate_k": str(explicate_k), "implicate_k": str(implicate_k)}):
+            # Query both indices
+            with time_operation("explicate_query"):
+                explicate_hits = self.vector_store.query_explicit(
+                    embedding=embedding,
+                    top_k=explicate_k,
+                    filter=kwargs.get('filter'),
+                    caller_role=caller_role
+                )
+            
+            with time_operation("implicate_query"):
+                implicate_hits = self.vector_store.query_implicate(
+                    embedding=embedding,
+                    top_k=implicate_k,
+                    filter=kwargs.get('filter'),
+                    caller_role=caller_role
+                )
         
         # Process explicate hits
-        explicate_records = self._process_explicate_hits(explicate_hits.matches)
+        with time_operation("explicate_processing"):
+            explicate_records = self._process_explicate_hits(explicate_hits.matches)
         
         # Process implicate hits with graph expansion
-        implicate_records = self._process_implicate_hits(implicate_hits.matches, caller_role)
+        with time_operation("implicate_processing"):
+            implicate_records = self._process_implicate_hits(implicate_hits.matches, caller_role)
+        
+        # Record dual query metrics
+        RetrievalMetrics.record_dual_query(explicate_k, implicate_k, 0)  # Latency recorded by time_operation
         
         # Combine and deduplicate
-        all_records = self._deduplicate_records(explicate_records + implicate_records)
+        with time_operation("record_deduplication"):
+            all_records = self._deduplicate_records(explicate_records + implicate_records)
         
         # Rank using LiftScore
-        ranked_result = self.ranker.rank_and_pack(
-            records=all_records,
-            query=query,
-            caller_role=caller_role
-        )
+        with time_operation("liftscore_ranking"):
+            ranked_result = self.ranker.rank_and_pack(
+                records=all_records,
+                query=query,
+                caller_role=caller_role
+            )
         
         # Generate reasons
         reasons = self._generate_reasons(ranked_result["context"], explicate_hits.matches, implicate_hits.matches)
@@ -249,34 +269,38 @@ class DualSelector(SelectionStrategy):
     def _expand_implicate_content(self, entity_id: str, caller_role: Optional[str]) -> Optional[Dict[str, Any]]:
         """Expand implicate content via graph traversal."""
         try:
-            # Get entity relations
-            relations = self.db_adapter.get_entity_relations(entity_id, limit=5)
-            
-            # Get supporting memories
-            memories = self.db_adapter.get_entity_memories(entity_id, limit=3)
-            
-            # Filter memories by role if needed
-            if caller_role:
-                memories = [m for m in memories if self._check_memory_role_access(m, caller_role)]
-            
-            # Build summary from relations and memories
-            summary_parts = []
-            
-            # Add relation context
-            if relations:
-                rel_text = ", ".join([f"{rel[0]} {rel[1]}" for rel in relations[:3]])
-                summary_parts.append(f"Key relationships: {rel_text}")
-            
-            # Add memory context
-            if memories:
-                memory_text = " ".join([m.content[:200] for m in memories[:2]])
-                summary_parts.append(f"Supporting evidence: {memory_text}")
-            
-            return {
-                "summary": ". ".join(summary_parts) if summary_parts else "Concept information available",
-                "relations": relations,
-                "memories": [{"id": m.id, "title": m.title, "content": m.content[:100]} for m in memories]
-            }
+            with time_operation("entity_expansion", labels={"entity_id": entity_id}):
+                # Get entity relations
+                relations = self.db_adapter.get_entity_relations(entity_id, limit=5)
+                
+                # Get supporting memories
+                memories = self.db_adapter.get_entity_memories(entity_id, limit=3)
+                
+                # Filter memories by role if needed
+                if caller_role:
+                    memories = [m for m in memories if self._check_memory_role_access(m, caller_role)]
+                
+                # Build summary from relations and memories
+                summary_parts = []
+                
+                # Add relation context
+                if relations:
+                    rel_text = ", ".join([f"{rel[0]} {rel[1]}" for rel in relations[:3]])
+                    summary_parts.append(f"Key relationships: {rel_text}")
+                
+                # Add memory context
+                if memories:
+                    memory_text = " ".join([m.content[:200] for m in memories[:2]])
+                    summary_parts.append(f"Supporting evidence: {memory_text}")
+                
+                # Record entity expansion metrics
+                RetrievalMetrics.record_entity_expansion(len(relations) + len(memories), 0)  # Latency recorded by time_operation
+                
+                return {
+                    "summary": ". ".join(summary_parts) if summary_parts else "Concept information available",
+                    "relations": relations,
+                    "memories": [{"id": m.id, "title": m.title, "content": m.content[:100]} for m in memories]
+                }
             
         except Exception as e:
             print(f"Error expanding implicate content for entity {entity_id}: {e}")

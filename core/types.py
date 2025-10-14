@@ -177,3 +177,23 @@ class OrchestrationConfig:
     time_budget_ms: int = 400
     max_stages: int = 10
     custom_knobs: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class StageInput:
+    """Input data for a stage."""
+    query: str
+    context: Dict[str, Any] = field(default_factory=dict)
+    retrieval_results: List[Dict[str, Any]] = field(default_factory=list)
+    previous_stage_output: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class StageOutput:
+    """Output data from a stage."""
+    result: Dict[str, Any] = field(default_factory=dict)
+    metrics: StageMetrics = field(default_factory=StageMetrics)
+    reason: str = ""
+    warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)

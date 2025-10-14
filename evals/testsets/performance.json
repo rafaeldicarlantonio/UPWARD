@@ -1,0 +1,47 @@
+[
+  {
+    "id": "perf_001",
+    "prompt": "What are the key principles of effective leadership?",
+    "description": "Performance test for basic retrieval with N_e=16, N_i=8",
+    "must_include": ["leadership"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance"
+  },
+  {
+    "id": "perf_002",
+    "prompt": "How does the organization handle conflict resolution?",
+    "description": "Performance test for implicate retrieval",
+    "must_include": ["conflict", "resolution"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance"
+  },
+  {
+    "id": "perf_003",
+    "prompt": "What are the core values that guide decision-making?",
+    "description": "Performance test for concept entity retrieval",
+    "must_include": ["values", "decision"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance"
+  },
+  {
+    "id": "perf_004",
+    "prompt": "How does the team approach innovation and change management?",
+    "description": "Performance test for complex query processing",
+    "must_include": ["innovation", "change"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance"
+  },
+  {
+    "id": "perf_005",
+    "prompt": "What communication strategies work best for remote teams?",
+    "description": "Performance test for multi-entity retrieval",
+    "must_include": ["communication", "remote"],
+    "max_latency_ms": 500,
+    "expected_p95_ms": 500,
+    "category": "performance"
+  }
+]

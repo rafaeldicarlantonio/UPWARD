@@ -1,0 +1,273 @@
+[
+  {
+    "id": "ordering_001",
+    "prompt": "What are the key factors for successful project management?",
+    "description": "REDO should order evidence by importance and relevance, with most critical factors first",
+    "must_include": ["project", "management", "factors"],
+    "expected_ordering": true,
+    "ordering_criteria": ["importance", "relevance", "priority"],
+    "max_latency_ms": 500,
+    "category": "ordering",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "priority_ordering",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_001",
+          "content": "Budget management is crucial for project success",
+          "relevance_score": 0.9,
+          "importance_score": 0.8,
+          "source": "project_management_guide"
+        },
+        {
+          "id": "ctx_002", 
+          "content": "Team communication and collaboration are essential",
+          "relevance_score": 0.8,
+          "importance_score": 0.9,
+          "source": "team_leadership_handbook"
+        },
+        {
+          "id": "ctx_003",
+          "content": "Timeline planning and milestone tracking",
+          "relevance_score": 0.7,
+          "importance_score": 0.7,
+          "source": "project_planning_methodology"
+        },
+        {
+          "id": "ctx_004",
+          "content": "Risk assessment and mitigation strategies",
+          "relevance_score": 0.6,
+          "importance_score": 0.8,
+          "source": "risk_management_framework"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_001", "ctx_002", "ctx_003", "ctx_004"],
+      "contradictions_count": 0,
+      "final_plan_type": "direct_answer"
+    }
+  },
+  {
+    "id": "ordering_002", 
+    "prompt": "How should we approach customer service improvements?",
+    "description": "REDO should order evidence by impact and feasibility, with high-impact low-effort items first",
+    "must_include": ["customer", "service", "improvements"],
+    "expected_ordering": true,
+    "ordering_criteria": ["impact", "feasibility", "urgency"],
+    "max_latency_ms": 500,
+    "category": "ordering",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "impact_feasibility_ordering",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_005",
+          "content": "Implement 24/7 chat support for immediate response",
+          "relevance_score": 0.9,
+          "impact_score": 0.8,
+          "feasibility_score": 0.6,
+          "source": "customer_service_best_practices"
+        },
+        {
+          "id": "ctx_006",
+          "content": "Train staff on active listening techniques",
+          "relevance_score": 0.8,
+          "impact_score": 0.7,
+          "feasibility_score": 0.9,
+          "source": "training_manual"
+        },
+        {
+          "id": "ctx_007",
+          "content": "Redesign customer feedback collection system",
+          "relevance_score": 0.7,
+          "impact_score": 0.9,
+          "feasibility_score": 0.4,
+          "source": "system_architecture_docs"
+        },
+        {
+          "id": "ctx_008",
+          "content": "Create customer service knowledge base",
+          "relevance_score": 0.6,
+          "impact_score": 0.6,
+          "feasibility_score": 0.8,
+          "source": "knowledge_management_guide"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_005", "ctx_006", "ctx_007", "ctx_008"],
+      "contradictions_count": 0,
+      "final_plan_type": "direct_answer"
+    }
+  },
+  {
+    "id": "ordering_003",
+    "prompt": "What are the best practices for data security?",
+    "description": "REDO should order evidence by security level and implementation priority",
+    "must_include": ["data", "security", "practices"],
+    "expected_ordering": true,
+    "ordering_criteria": ["security_level", "implementation_priority", "compliance"],
+    "max_latency_ms": 500,
+    "category": "ordering",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "security_priority_ordering",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_009",
+          "content": "Implement multi-factor authentication for all systems",
+          "relevance_score": 0.9,
+          "security_level": 0.9,
+          "implementation_priority": 0.8,
+          "source": "security_standards"
+        },
+        {
+          "id": "ctx_010",
+          "content": "Encrypt all data at rest and in transit",
+          "relevance_score": 0.8,
+          "security_level": 0.9,
+          "implementation_priority": 0.9,
+          "source": "encryption_guidelines"
+        },
+        {
+          "id": "ctx_011",
+          "content": "Regular security audits and penetration testing",
+          "relevance_score": 0.7,
+          "security_level": 0.8,
+          "implementation_priority": 0.6,
+          "source": "audit_procedures"
+        },
+        {
+          "id": "ctx_012",
+          "content": "Employee security training and awareness programs",
+          "relevance_score": 0.6,
+          "security_level": 0.7,
+          "implementation_priority": 0.7,
+          "source": "training_materials"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_009", "ctx_010", "ctx_011", "ctx_012"],
+      "contradictions_count": 0,
+      "final_plan_type": "direct_answer"
+    }
+  },
+  {
+    "id": "ordering_004",
+    "prompt": "How can we improve team productivity?",
+    "description": "REDO should order evidence by productivity impact and ease of implementation",
+    "must_include": ["team", "productivity", "improve"],
+    "expected_ordering": true,
+    "ordering_criteria": ["productivity_impact", "ease_of_implementation", "cost_effectiveness"],
+    "max_latency_ms": 500,
+    "category": "ordering",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "productivity_ordering",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_013",
+          "content": "Implement agile methodology with daily standups",
+          "relevance_score": 0.9,
+          "productivity_impact": 0.8,
+          "ease_of_implementation": 0.7,
+          "source": "agile_guide"
+        },
+        {
+          "id": "ctx_014",
+          "content": "Provide better project management tools and software",
+          "relevance_score": 0.8,
+          "productivity_impact": 0.7,
+          "ease_of_implementation": 0.8,
+          "source": "tool_recommendations"
+        },
+        {
+          "id": "ctx_015",
+          "content": "Reduce meeting frequency and duration",
+          "relevance_score": 0.7,
+          "productivity_impact": 0.6,
+          "ease_of_implementation": 0.9,
+          "source": "meeting_optimization"
+        },
+        {
+          "id": "ctx_016",
+          "content": "Implement flexible work arrangements",
+          "relevance_score": 0.6,
+          "productivity_impact": 0.9,
+          "ease_of_implementation": 0.4,
+          "source": "remote_work_studies"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_013", "ctx_014", "ctx_015", "ctx_016"],
+      "contradictions_count": 0,
+      "final_plan_type": "direct_answer"
+    }
+  },
+  {
+    "id": "ordering_005",
+    "prompt": "What are the key considerations for technology adoption?",
+    "description": "REDO should order evidence by business value and technical feasibility",
+    "must_include": ["technology", "adoption", "considerations"],
+    "expected_ordering": true,
+    "ordering_criteria": ["business_value", "technical_feasibility", "risk_level"],
+    "max_latency_ms": 500,
+    "category": "ordering",
+    "golden_case": true,
+    "expected_stages": ["observe", "expand", "contrast", "order"],
+    "test_type": "tech_adoption_ordering",
+    "fixtures": {
+      "retrieval_results": [
+        {
+          "id": "ctx_017",
+          "content": "Assess current infrastructure compatibility",
+          "relevance_score": 0.9,
+          "business_value": 0.8,
+          "technical_feasibility": 0.7,
+          "source": "infrastructure_assessment"
+        },
+        {
+          "id": "ctx_018",
+          "content": "Evaluate total cost of ownership and ROI",
+          "relevance_score": 0.8,
+          "business_value": 0.9,
+          "technical_feasibility": 0.8,
+          "source": "financial_analysis"
+        },
+        {
+          "id": "ctx_019",
+          "content": "Plan for staff training and change management",
+          "relevance_score": 0.7,
+          "business_value": 0.7,
+          "technical_feasibility": 0.6,
+          "source": "change_management_guide"
+        },
+        {
+          "id": "ctx_020",
+          "content": "Consider security and compliance requirements",
+          "relevance_score": 0.6,
+          "business_value": 0.8,
+          "technical_feasibility": 0.5,
+          "source": "compliance_framework"
+        }
+      ]
+    },
+    "expected_outputs": {
+      "stage_order": ["observe", "expand", "contrast", "order"],
+      "selected_context_ids": ["ctx_017", "ctx_018", "ctx_019", "ctx_020"],
+      "contradictions_count": 0,
+      "final_plan_type": "direct_answer"
+    }
+  }
+]

@@ -18,6 +18,22 @@ DEFAULTS = {
     "MEMORIES_TEXT_COLUMN": "text",
     "EMBED_DIM": None,   # None = let model decide / must match index
     "X_API_KEY": None,   # optional request auth for your endpoints
+    
+    # REDO/ledger configuration
+    "ORCHESTRATOR_REDO_ENABLED": False,
+    "LEDGER_ENABLED": False,
+    "LEDGER_LEVEL": "off",  # off, min, full
+    "LEDGER_MAX_TRACE_BYTES": 100_000,
+    "LEDGER_SUMMARY_MAX_LINES": 4,
+    "ORCHESTRATION_TIME_BUDGET_MS": 400,
+    
+    # Factare configuration
+    "FACTARE_ENABLED": False,
+    "FACTARE_ALLOW_EXTERNAL": False,
+    "FACTARE_EXTERNAL_TIMEOUT_MS": 2000,
+    "FACTARE_MAX_SOURCES_INTERNAL": 24,
+    "FACTARE_MAX_SOURCES_EXTERNAL": 8,
+    "HYPOTHESES_PARETO_THRESHOLD": 0.65,
 }
 
 def load_config():
@@ -52,11 +68,74 @@ def load_config():
 
     for k, v in DEFAULTS.items():
         val = os.getenv(k, v)
+        
+        # Type conversion and validation
         if k == "EMBED_DIM" and val is not None and val != "":
             try:
                 val = int(val)
             except Exception:
                 raise RuntimeError("EMBED_DIM must be an integer if provided")
+        elif k == "ORCHESTRATOR_REDO_ENABLED":
+            val = val.lower() in ('true', '1', 'yes', 'on') if isinstance(val, str) else bool(val)
+        elif k == "LEDGER_ENABLED":
+            val = val.lower() in ('true', '1', 'yes', 'on') if isinstance(val, str) else bool(val)
+        elif k == "LEDGER_LEVEL":
+            if val not in ['off', 'min', 'full']:
+                raise RuntimeError(f"LEDGER_LEVEL must be one of 'off', 'min', 'full', got: {val}")
+        elif k == "LEDGER_MAX_TRACE_BYTES":
+            try:
+                val = int(val)
+                if val < 0:
+                    raise ValueError("LEDGER_MAX_TRACE_BYTES must be non-negative")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"LEDGER_MAX_TRACE_BYTES must be a non-negative integer, got: {val}")
+        elif k == "LEDGER_SUMMARY_MAX_LINES":
+            try:
+                val = int(val)
+                if val < 0:
+                    raise ValueError("LEDGER_SUMMARY_MAX_LINES must be non-negative")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"LEDGER_SUMMARY_MAX_LINES must be a non-negative integer, got: {val}")
+        elif k == "ORCHESTRATION_TIME_BUDGET_MS":
+            try:
+                val = int(val)
+                if val < 0:
+                    raise ValueError("ORCHESTRATION_TIME_BUDGET_MS must be non-negative")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"ORCHESTRATION_TIME_BUDGET_MS must be a non-negative integer, got: {val}")
+        elif k == "FACTARE_ENABLED":
+            val = val.lower() in ('true', '1', 'yes', 'on') if isinstance(val, str) else bool(val)
+        elif k == "FACTARE_ALLOW_EXTERNAL":
+            val = val.lower() in ('true', '1', 'yes', 'on') if isinstance(val, str) else bool(val)
+        elif k == "FACTARE_EXTERNAL_TIMEOUT_MS":
+            try:
+                val = int(val)
+                if val < 0:
+                    raise ValueError("FACTARE_EXTERNAL_TIMEOUT_MS must be non-negative")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"FACTARE_EXTERNAL_TIMEOUT_MS must be a non-negative integer, got: {val}")
+        elif k == "FACTARE_MAX_SOURCES_INTERNAL":
+            try:
+                val = int(val)
+                if val < 0:
+                    raise ValueError("FACTARE_MAX_SOURCES_INTERNAL must be non-negative")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"FACTARE_MAX_SOURCES_INTERNAL must be a non-negative integer, got: {val}")
+        elif k == "FACTARE_MAX_SOURCES_EXTERNAL":
+            try:
+                val = int(val)
+                if val < 0:
+                    raise ValueError("FACTARE_MAX_SOURCES_EXTERNAL must be non-negative")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"FACTARE_MAX_SOURCES_EXTERNAL must be a non-negative integer, got: {val}")
+        elif k == "HYPOTHESES_PARETO_THRESHOLD":
+            try:
+                val = float(val)
+                if not 0.0 <= val <= 1.0:
+                    raise ValueError("HYPOTHESES_PARETO_THRESHOLD must be between 0.0 and 1.0")
+            except (ValueError, TypeError):
+                raise RuntimeError(f"HYPOTHESES_PARETO_THRESHOLD must be a float between 0.0 and 1.0, got: {val}")
+        
         cfg[k] = val
 
     return cfg

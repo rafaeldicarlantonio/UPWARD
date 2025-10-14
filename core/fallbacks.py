@@ -119,9 +119,8 @@ class RedoFallbackManager:
         # Update health check time
         self.health_status.last_health_check = current_time
         
-        # For now, assume healthy unless we have recent errors
-        # In a real implementation, this would check actual component health
-        return True
+        # Return current health status
+        return self.health_status.orchestrator_healthy and self.health_status.ledger_healthy
     
     def record_orchestrator_failure(self, error: Exception) -> None:
         """Record an orchestrator failure."""

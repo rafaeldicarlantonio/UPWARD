@@ -9,6 +9,8 @@ from config import load_config
 from feature_flags import get_all_flags
 from core.ledger import RheomodeLedger
 from core.metrics import get_all_metrics, reset_metrics
+from core.orchestrator.replay import replay_trace, replay_trace_with_ledger
+from core.types import OrchestrationResult
 
 router = APIRouter(tags=["debug"])
 
@@ -193,3 +195,179 @@ def debug_metrics(
             "status": "error",
             "error": str(e)
         }
+
+@router.get("/debug/redo_trace")
+def debug_redo_trace(
+    message_id: str = Query(..., description="Message ID to get REDO trace for"),
+    x_api_key: Optional[str] = Header(None)
+):
+    """Get the last REDO orchestration trace for a given message ID."""
+    _require_key(x_api_key)
+    
+    try:
+        # Query the rheomode_runs table for the trace
+        result = supabase.table("rheomode_runs").select("*").eq("message_id", message_id).order("created_at", desc=True).limit(1).execute()
+        
+        if not result.data or len(result.data) == 0:
+            raise HTTPException(status_code=404, detail="No REDO trace found for message ID")
+        
+        trace_row = result.data[0]
+        
+        # Parse the trace data
+        trace_data = trace_row.get("trace_data", {})
+        
+        # Build response
+        response = {
+            "id": trace_row.get("id"),
+            "session_id": trace_row.get("session_id"),
+            "message_id": trace_row.get("message_id"),
+            "created_at": trace_row.get("created_at"),
+            "trace_hash": trace_row.get("trace_hash"),
+            "is_truncated": trace_row.get("is_truncated", False),
+            "original_size": trace_row.get("original_size", 0),
+            "stored_size": trace_row.get("stored_size", 0),
+            "trace_data": trace_data,
+            "status": "ok"
+        }
+        
+        # Add trace summary if available
+        if trace_data:
+            stages = trace_data.get("stages", [])
+            contradictions = trace_data.get("contradictions", [])
+            selected_context_ids = trace_data.get("selected_context_ids", [])
+            timings = trace_data.get("timings", {})
+            
+            response["summary"] = {
+                "stages_count": len(stages),
+                "contradictions_count": len(contradictions),
+                "selected_context_count": len(selected_context_ids),
+                "total_time_ms": timings.get("total_ms", 0.0),
+                "orchestration_time_ms": timings.get("orchestration_ms", 0.0),
+                "planning_time_ms": timings.get("planning_ms", 0.0)
+            }
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching REDO trace: {str(e)}")
+
+@router.post("/debug/redo_replay")
+def debug_redo_replay(
+    message_id: str = Query(..., description="Message ID to replay"),
+    write_to_ledger: bool = Query(False, description="Write replay result to ledger"),
+    x_api_key: Optional[str] = Header(None)
+):
+    """Replay a REDO orchestration trace with current code and configuration."""
+    _require_key(x_api_key)
+    
+    try:
+        # First, get the original trace
+        trace_result = supabase.table("rheomode_runs").select("*").eq("message_id", message_id).order("created_at", desc=True).limit(1).execute()
+        
+        if not trace_result.data or len(trace_result.data) == 0:
+            raise HTTPException(status_code=404, detail="No REDO trace found for message ID")
+        
+        trace_row = trace_result.data[0]
+        trace_data = trace_row.get("trace_data", {})
+        
+        if not trace_data:
+            raise HTTPException(status_code=400, detail="Trace data is empty or invalid")
+        
+        # Get current feature flags and config
+        feature_flags = get_all_flags()
+        config = load_config()
+        
+        # Replay the trace
+        if write_to_ledger:
+            replay_result = replay_trace_with_ledger(
+                trace_data=trace_data,
+                session_id=trace_row.get("session_id", ""),
+                message_id=message_id,
+                feature_flags=feature_flags,
+                config=config
+            )
+        else:
+            replay_result = replay_trace(trace_data, feature_flags, config)
+        
+        # Build response
+        response = {
+            "message_id": message_id,
+            "replay_success": replay_result.success,
+            "timing_diff_ms": replay_result.timing_diff_ms,
+            "warnings": replay_result.warnings,
+            "errors": replay_result.errors,
+            "original_trace": {
+                "stages_count": len(trace_data.get("stages", [])),
+                "contradictions_count": len(trace_data.get("contradictions", [])),
+                "selected_context_count": len(trace_data.get("selected_context_ids", [])),
+                "total_time_ms": trace_data.get("timings", {}).get("total_ms", 0.0)
+            },
+            "replayed_trace": {
+                "stages_count": len(replay_result.replayed_trace.stages),
+                "contradictions_count": len(replay_result.replayed_trace.contradictions),
+                "selected_context_count": len(replay_result.replayed_trace.selected_context_ids),
+                "total_time_ms": replay_result.replayed_trace.timings.get("total_ms", 0.0),
+                "warnings_count": len(replay_result.replayed_trace.warnings)
+            },
+            "status": "ok"
+        }
+        
+        # Add detailed trace data if requested
+        if replay_result.success:
+            response["replayed_trace_data"] = replay_result.replayed_trace.to_trace_schema()
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error replaying REDO trace: {str(e)}")
+
+@router.get("/debug/redo_traces")
+def debug_redo_traces(
+    session_id: Optional[str] = Query(None, description="Filter by session ID"),
+    limit: int = Query(10, ge=1, le=100, description="Number of traces to return"),
+    x_api_key: Optional[str] = Header(None)
+):
+    """Get a list of REDO orchestration traces."""
+    _require_key(x_api_key)
+    
+    try:
+        # Build query
+        query = supabase.table("rheomode_runs").select("id,session_id,message_id,created_at,is_truncated,original_size,stored_size").order("created_at", desc=True).limit(limit)
+        
+        if session_id:
+            query = query.eq("session_id", session_id)
+        
+        result = query.execute()
+        
+        if not result.data:
+            return {
+                "traces": [],
+                "count": 0,
+                "status": "ok"
+            }
+        
+        # Format response
+        traces = []
+        for row in result.data:
+            traces.append({
+                "id": row.get("id"),
+                "session_id": row.get("session_id"),
+                "message_id": row.get("message_id"),
+                "created_at": row.get("created_at"),
+                "is_truncated": row.get("is_truncated", False),
+                "original_size": row.get("original_size", 0),
+                "stored_size": row.get("stored_size", 0)
+            })
+        
+        return {
+            "traces": traces,
+            "count": len(traces),
+            "status": "ok"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching REDO traces: {str(e)}")

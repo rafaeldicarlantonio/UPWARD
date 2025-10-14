@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 
 from core.types import OrchestrationResult
+from core.metrics import LedgerMetrics, time_operation
 
 
 @dataclass
@@ -60,39 +61,51 @@ def write_ledger(
     if options is None:
         options = LedgerOptions()
     
-    # Convert trace to JSON-serializable format
-    trace_data = trace.to_trace_schema()
-    original_size = len(json.dumps(trace_data, separators=(',', ':'), ensure_ascii=False).encode('utf-8'))
-    
-    # Check if trace exceeds size limit
-    if original_size > options.max_trace_bytes:
-        trace_data, is_truncated = _truncate_trace(trace_data, options.max_trace_bytes)
-        stored_size = len(json.dumps(trace_data, separators=(',', ':'), ensure_ascii=False).encode('utf-8'))
-    else:
-        is_truncated = False
-        stored_size = original_size
-    
-    # Generate hash if enabled
-    trace_hash = None
-    if options.enable_hashing:
-        trace_hash = _generate_trace_hash(trace_data, options.hash_algorithm)
-    
-    # Create ledger entry
-    entry = LedgerEntry(
-        session_id=session_id,
-        message_id=message_id,
-        trace_data=trace_data,
-        trace_hash=trace_hash,
-        is_truncated=is_truncated,
-        original_size=original_size,
-        stored_size=stored_size,
-    )
-    
-    # In a real implementation, this would insert into the database
-    # For now, we'll simulate the database operation
-    _simulate_db_insert(entry)
-    
-    return entry
+    with time_operation("ledger_write", {"session_id": session_id}):
+        # Convert trace to JSON-serializable format
+        trace_data = trace.to_trace_schema()
+        original_size = len(json.dumps(trace_data, separators=(',', ':'), ensure_ascii=False).encode('utf-8'))
+        
+        # Check if trace exceeds size limit
+        if original_size > options.max_trace_bytes:
+            trace_data, is_truncated = _truncate_trace(trace_data, options.max_trace_bytes)
+            stored_size = len(json.dumps(trace_data, separators=(',', ':'), ensure_ascii=False).encode('utf-8'))
+            
+            # Record truncation metrics
+            truncation_ratio = stored_size / max(original_size, 1)
+            LedgerMetrics.record_ledger_truncation(original_size, stored_size, truncation_ratio)
+        else:
+            is_truncated = False
+            stored_size = original_size
+        
+        # Generate hash if enabled
+        trace_hash = None
+        if options.enable_hashing:
+            hash_start = time.time()
+            trace_hash = _generate_trace_hash(trace_data, options.hash_algorithm)
+            hash_latency = (time.time() - hash_start) * 1000
+            LedgerMetrics.record_ledger_hash_generation(options.hash_algorithm, stored_size, hash_latency)
+        
+        # Create ledger entry
+        entry = LedgerEntry(
+            session_id=session_id,
+            message_id=message_id,
+            trace_data=trace_data,
+            trace_hash=trace_hash,
+            is_truncated=is_truncated,
+            original_size=original_size,
+            stored_size=stored_size,
+        )
+        
+        # Record ledger metrics
+        LedgerMetrics.record_bytes_written(stored_size, is_truncated)
+        LedgerMetrics.record_ledger_entry(session_id, message_id, stored_size, is_truncated)
+        
+        # In a real implementation, this would insert into the database
+        # For now, we'll simulate the database operation
+        _simulate_db_insert(entry)
+        
+        return entry
 
 
 def _truncate_trace(trace_data: Dict[str, Any], max_bytes: int) -> tuple[Dict[str, Any], bool]:

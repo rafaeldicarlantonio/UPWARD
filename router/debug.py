@@ -173,6 +173,45 @@ def debug_metrics(
         if feature_flag_usage:
             key_metrics["feature_flag_usage"] = {c["labels"].get("flag", "unknown"): c["value"] for c in feature_flag_usage}
         
+        # REDO Orchestrator metrics
+        redo_runs = metrics["counters"].get("redo.runs", [])
+        if redo_runs:
+            key_metrics["redo_runs_total"] = sum(c["value"] for c in redo_runs)
+            success_runs = sum(c["value"] for c in redo_runs if c["labels"].get("success") == "True")
+            key_metrics["redo_success_rate"] = success_runs / sum(c["value"] for c in redo_runs) if sum(c["value"] for c in redo_runs) > 0 else 0.0
+        
+        # Stage timing metrics
+        stage_metrics = {}
+        for stage in ["observe", "expand", "contrast", "order"]:
+            stage_timing = metrics["histograms"].get(f"redo.stage.{stage}_ms", [])
+            if stage_timing:
+                stage_metrics[f"{stage}_avg_ms"] = stage_timing[0]["stats"]["avg"]
+                stage_metrics[f"{stage}_count"] = stage_timing[0]["stats"]["count"]
+        if stage_metrics:
+            key_metrics["stage_metrics"] = stage_metrics
+        
+        # Budget overruns
+        budget_overruns = metrics["counters"].get("redo.budget_overruns", [])
+        if budget_overruns:
+            key_metrics["budget_overruns_total"] = sum(c["value"] for c in budget_overruns)
+        
+        # Ledger metrics
+        ledger_bytes = metrics["counters"].get("ledger.bytes_written", [])
+        if ledger_bytes:
+            key_metrics["ledger_bytes_written"] = sum(c["value"] for c in ledger_bytes)
+        
+        ledger_entries = metrics["counters"].get("ledger.entries_written", [])
+        if ledger_entries:
+            key_metrics["ledger_entries_written"] = sum(c["value"] for c in ledger_entries)
+            truncated_entries = sum(c["value"] for c in ledger_entries if c["labels"].get("truncated") == "True")
+            key_metrics["ledger_truncation_rate"] = truncated_entries / sum(c["value"] for c in ledger_entries) if sum(c["value"] for c in ledger_entries) > 0 else 0.0
+        
+        # Contradiction metrics
+        contradictions_found = metrics["histograms"].get("redo.contradictions_found", [])
+        if contradictions_found:
+            key_metrics["contradictions_avg"] = contradictions_found[0]["stats"]["avg"]
+            key_metrics["contradictions_total"] = contradictions_found[0]["stats"]["count"]
+        
         response = {
             "summary": summary,
             "key_metrics": key_metrics,

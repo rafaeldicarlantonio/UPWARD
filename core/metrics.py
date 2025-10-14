@@ -220,6 +220,70 @@ def reset_metrics():
     _metrics.reset_metrics()
 
 # Specific metrics for our use case
+class OrchestratorMetrics:
+    """Specific metrics for orchestrator system."""
+    
+    @staticmethod
+    def record_redo_run(success: bool, total_time_ms: float, stages_count: int):
+        """Record a REDO orchestration run."""
+        increment_counter("redo.runs", labels={"success": str(success)})
+        observe_histogram("redo.run_duration_ms", total_time_ms, labels={"success": str(success)})
+        observe_histogram("redo.stages_count", stages_count)
+    
+    @staticmethod
+    def record_stage_timing(stage_name: str, duration_ms: float, success: bool = True):
+        """Record stage execution timing."""
+        observe_histogram(f"redo.stage.{stage_name}_ms", duration_ms, labels={"success": str(success)})
+        increment_counter(f"redo.stage.{stage_name}_total", labels={"success": str(success)})
+    
+    @staticmethod
+    def record_budget_overrun(overrun_ms: float, stage_name: str = None):
+        """Record when orchestration exceeds time budget."""
+        increment_counter("redo.budget_overruns", labels={"stage": stage_name or "unknown"})
+        observe_histogram("redo.budget_overrun_ms", overrun_ms, labels={"stage": stage_name or "unknown"})
+    
+    @staticmethod
+    def record_orchestration_contradictions(contradictions_count: int):
+        """Record contradictions found during orchestration."""
+        observe_histogram("redo.contradictions_found", contradictions_count)
+        increment_counter("redo.contradiction_detections", labels={"has_contradictions": str(contradictions_count > 0)})
+    
+    @staticmethod
+    def record_context_selection(selected_count: int, total_available: int):
+        """Record context selection metrics."""
+        observe_histogram("redo.context_selected_count", selected_count)
+        observe_histogram("redo.context_selection_ratio", selected_count / max(total_available, 1))
+        increment_counter("redo.context_selections")
+
+class LedgerMetrics:
+    """Specific metrics for ledger system."""
+    
+    @staticmethod
+    def record_bytes_written(bytes_written: int, is_truncated: bool = False):
+        """Record bytes written to ledger."""
+        increment_counter("ledger.bytes_written", value=bytes_written, labels={"truncated": str(is_truncated)})
+        observe_histogram("ledger.write_size_bytes", bytes_written, labels={"truncated": str(is_truncated)})
+    
+    @staticmethod
+    def record_ledger_entry(session_id: str, message_id: str, size_bytes: int, is_truncated: bool = False):
+        """Record a ledger entry."""
+        increment_counter("ledger.entries_written", labels={"truncated": str(is_truncated)})
+        observe_histogram("ledger.entry_size_bytes", size_bytes, labels={"truncated": str(is_truncated)})
+    
+    @staticmethod
+    def record_ledger_truncation(original_size: int, truncated_size: int, truncation_ratio: float):
+        """Record ledger truncation events."""
+        increment_counter("ledger.truncations")
+        observe_histogram("ledger.truncation_ratio", truncation_ratio)
+        observe_histogram("ledger.truncation_savings_bytes", original_size - truncated_size)
+    
+    @staticmethod
+    def record_ledger_hash_generation(algorithm: str, size_bytes: int, latency_ms: float):
+        """Record ledger hash generation."""
+        increment_counter("ledger.hash_generations", labels={"algorithm": algorithm})
+        observe_histogram("ledger.hash_generation_latency_ms", latency_ms, labels={"algorithm": algorithm})
+        observe_histogram("ledger.hash_generation_size_bytes", size_bytes)
+
 class RetrievalMetrics:
     """Specific metrics for retrieval system."""
     
@@ -310,6 +374,6 @@ __all__ = [
     'MetricsCollector', 'MetricCounter', 'MetricGauge', 'MetricHistogram',
     'increment_counter', 'set_gauge', 'observe_histogram', 'get_counter', 
     'get_gauge', 'get_histogram_stats', 'get_all_metrics', 'reset_metrics',
-    'RetrievalMetrics', 'time_operation', 'record_api_call', 'record_error',
-    'record_feature_flag_usage'
+    'OrchestratorMetrics', 'LedgerMetrics', 'RetrievalMetrics', 'time_operation', 
+    'record_api_call', 'record_error', 'record_feature_flag_usage'
 ]

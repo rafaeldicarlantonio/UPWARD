@@ -5,8 +5,14 @@ import re
 import hashlib
 import datetime
 from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
 
 from ingest.simhash import simhash64, hamming  # expects your existing file
+from nlp.tokenize import tokenize_text, TokenizationBackend
+from nlp.verbs import extract_predicates, PredicateFrame
+from nlp.frames import extract_event_frames, EventFrame
+from nlp.concepts import suggest_concepts
+from nlp.contradictions import detect_contradictions, ContradictionCandidate
 
 # -----------------------------
 # small utilities
@@ -418,3 +424,88 @@ def upsert_memories_from_chunks(
 
     # final return (after processing all chunks)
     return {"upserted": created, "updated": updated, "skipped": skipped}
+
+
+# -----------------------------
+# Analysis Context and Limits
+# -----------------------------
+@dataclass
+class AnalysisContext:
+    """Context for chunk analysis."""
+    backend: Optional[TokenizationBackend] = None
+    existing_concepts: Optional[List[Dict[str, str]]] = None
+
+
+@dataclass
+class AnalysisLimits:
+    """Limits for chunk analysis."""
+    max_ms_per_chunk: Optional[int] = None
+    max_verbs: Optional[int] = None
+    max_frames: Optional[int] = None
+    max_concepts: Optional[int] = None
+
+
+@dataclass
+class AnalysisResult:
+    """Results from chunk analysis."""
+    predicates: List[PredicateFrame]
+    frames: List[EventFrame]
+    concepts: List[Dict[str, str]]
+    contradictions: List[ContradictionCandidate]
+
+
+# -----------------------------
+# Analyze Chunk (NLP Pipeline)
+# -----------------------------
+def analyze_chunk(
+    text: str,
+    ctx: Optional[AnalysisContext] = None,
+    limits: Optional[AnalysisLimits] = None,
+) -> AnalysisResult:
+    """
+    Wire tokenize → verbs → frames → concepts → contradictions into a single function.
+    
+    Args:
+        text: The text chunk to analyze
+        ctx: Analysis context with backend and existing concepts
+        limits: Limits for analysis (max verbs, frames, concepts, time budget)
+    
+    Returns:
+        AnalysisResult with predicates, frames, concepts, and contradictions
+    """
+    ctx = ctx or AnalysisContext()
+    limits = limits or AnalysisLimits()
+    
+    # Extract predicates (verbs)
+    predicates = extract_predicates(
+        text,
+        backend=ctx.backend,
+        max_verbs=limits.max_verbs,
+    )
+    
+    # Extract event frames
+    frames = extract_event_frames(
+        text,
+        backend=ctx.backend,
+        max_frames=limits.max_frames,
+    )
+    
+    # Suggest concepts
+    existing_concepts = ctx.existing_concepts or []
+    memories = [{"id": "temp", "text": text, "frames": frames}]
+    concepts = suggest_concepts(
+        memories,
+        existing_concepts,
+        backend=ctx.backend,
+        max_concepts=limits.max_concepts,
+    )
+    
+    # Detect contradictions
+    contradictions = detect_contradictions(predicates)
+    
+    return AnalysisResult(
+        predicates=predicates,
+        frames=frames,
+        concepts=concepts,
+        contradictions=contradictions,
+    )

@@ -9,6 +9,7 @@ from .tokenize import (  # noqa: F401
 )
 from .verbs import PredicateFrame, extract_predicates  # noqa: F401
 from .frames import EventFrame, build_event_frames, extract_event_frames  # noqa: F401
+from .concepts import suggest_concepts  # noqa: F401
 
 __all__ = [
     "Token",
@@ -21,4 +22,5 @@ __all__ = [
     "EventFrame",
     "build_event_frames",
     "extract_event_frames",
+    "suggest_concepts",
 ]

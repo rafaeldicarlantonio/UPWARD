@@ -1,9 +1,15 @@
 # core/policy.py — Factare policy helpers and access control
 
 import re
-from typing import List, Set, Dict, Any
+import os
+import yaml
+import logging
+from typing import List, Set, Dict, Any, Optional
 from urllib.parse import urlparse
+from dataclasses import dataclass, field
 from config import load_config
+
+logger = logging.getLogger(__name__)
 
 # Load configuration once at module level
 _config = load_config()
@@ -279,3 +285,293 @@ def get_user_policy_summary(user_roles: List[str], factare_enabled: bool, factar
         "roles": user_roles,
         "permissions": permissions,
     }
+
+
+# ============================================================================
+# Ingest Policy Configuration
+# ============================================================================
+
+@dataclass
+class IngestPolicy:
+    """Policy for ingestion operations."""
+    max_concepts_per_file: int
+    max_frames_per_chunk: int
+    write_contradictions_to_memories: bool
+    allowed_frame_types: List[str]
+    contradiction_tolerance: float
+    role: str = "default"
+    
+    def validate(self, global_limits: Dict[str, Any]) -> 'IngestPolicy':
+        """
+        Validate and clamp policy values to global limits.
+        
+        Args:
+            global_limits: Global limits that cannot be exceeded
+            
+        Returns:
+            Self (for chaining)
+        """
+        # Clamp to global absolute limits
+        self.max_concepts_per_file = min(
+            self.max_concepts_per_file,
+            global_limits.get("max_concepts_per_file_absolute", 1000)
+        )
+        self.max_frames_per_chunk = min(
+            self.max_frames_per_chunk,
+            global_limits.get("max_frames_per_chunk_absolute", 100)
+        )
+        
+        # Clamp contradiction tolerance
+        min_tol = global_limits.get("min_contradiction_tolerance", 0.05)
+        max_tol = global_limits.get("max_contradiction_tolerance", 0.9)
+        self.contradiction_tolerance = max(min_tol, min(max_tol, self.contradiction_tolerance))
+        
+        return self
+
+
+class IngestPolicyManager:
+    """Manager for loading and accessing ingest policies."""
+    
+    def __init__(self, policy_path: Optional[str] = None):
+        """
+        Initialize the policy manager.
+        
+        Args:
+            policy_path: Path to the policy YAML file. If None, uses default location.
+        """
+        self.policy_path = policy_path or os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "config",
+            "ingest_policy.yaml"
+        )
+        self._policies: Dict[str, IngestPolicy] = {}
+        self._default_policy: Optional[IngestPolicy] = None
+        self._global_limits: Dict[str, Any] = {}
+        self._valid_frame_types: List[str] = []
+        self._load_policy()
+    
+    def _get_safe_default_policy(self) -> IngestPolicy:
+        """Get a safe default policy when loading fails."""
+        return IngestPolicy(
+            max_concepts_per_file=20,
+            max_frames_per_chunk=5,
+            write_contradictions_to_memories=False,
+            allowed_frame_types=["claim"],
+            contradiction_tolerance=0.5,
+            role="default"
+        )
+    
+    def _load_policy(self):
+        """Load policy from YAML file with safe fallback."""
+        try:
+            if not os.path.exists(self.policy_path):
+                logger.warning(f"Policy file not found at {self.policy_path}, using safe defaults")
+                self._default_policy = self._get_safe_default_policy()
+                self._global_limits = {
+                    "max_concepts_per_file_absolute": 1000,
+                    "max_frames_per_chunk_absolute": 100,
+                    "max_edges_per_commit_absolute": 5000,
+                    "min_contradiction_tolerance": 0.05,
+                    "max_contradiction_tolerance": 0.9,
+                }
+                self._valid_frame_types = ["claim", "evidence", "observation"]
+                return
+            
+            with open(self.policy_path, 'r') as f:
+                policy_data = yaml.safe_load(f)
+            
+            if not policy_data:
+                raise ValueError("Policy file is empty")
+            
+            # Load global limits
+            self._global_limits = policy_data.get("global_limits", {})
+            
+            # Load valid frame types
+            self._valid_frame_types = policy_data.get("valid_frame_types", [])
+            
+            # Load role-specific policies
+            roles = policy_data.get("roles", {})
+            for role_name, role_policy in roles.items():
+                try:
+                    policy = IngestPolicy(
+                        max_concepts_per_file=role_policy.get("max_concepts_per_file", 20),
+                        max_frames_per_chunk=role_policy.get("max_frames_per_chunk", 5),
+                        write_contradictions_to_memories=role_policy.get("write_contradictions_to_memories", False),
+                        allowed_frame_types=role_policy.get("allowed_frame_types", ["claim"]),
+                        contradiction_tolerance=role_policy.get("contradiction_tolerance", 0.5),
+                        role=role_name
+                    )
+                    policy.validate(self._global_limits)
+                    self._policies[role_name] = policy
+                except Exception as e:
+                    logger.error(f"Failed to load policy for role '{role_name}': {e}")
+            
+            # Load default policy
+            default_data = policy_data.get("default", {})
+            self._default_policy = IngestPolicy(
+                max_concepts_per_file=default_data.get("max_concepts_per_file", 20),
+                max_frames_per_chunk=default_data.get("max_frames_per_chunk", 5),
+                write_contradictions_to_memories=default_data.get("write_contradictions_to_memories", False),
+                allowed_frame_types=default_data.get("allowed_frame_types", ["claim"]),
+                contradiction_tolerance=default_data.get("contradiction_tolerance", 0.5),
+                role="default"
+            )
+            self._default_policy.validate(self._global_limits)
+            
+            logger.info(f"Loaded ingest policies for {len(self._policies)} roles from {self.policy_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to load policy from {self.policy_path}: {e}, using safe defaults")
+            self._default_policy = self._get_safe_default_policy()
+            self._global_limits = {
+                "max_concepts_per_file_absolute": 1000,
+                "max_frames_per_chunk_absolute": 100,
+                "max_edges_per_commit_absolute": 5000,
+                "min_contradiction_tolerance": 0.05,
+                "max_contradiction_tolerance": 0.9,
+            }
+            self._valid_frame_types = ["claim", "evidence", "observation"]
+    
+    def get_policy(self, roles: Optional[List[str]] = None) -> IngestPolicy:
+        """
+        Get the policy for the given roles.
+        
+        Uses the most permissive policy if multiple roles are provided.
+        Falls back to default policy if no matching role is found.
+        
+        Args:
+            roles: List of user roles. If None or empty, returns default policy.
+            
+        Returns:
+            IngestPolicy for the user
+        """
+        if not roles:
+            return self._default_policy or self._get_safe_default_policy()
+        
+        # Find the most permissive policy among the user's roles
+        best_policy = None
+        max_concepts = 0
+        
+        for role in roles:
+            policy = self._policies.get(role)
+            if policy and policy.max_concepts_per_file > max_concepts:
+                best_policy = policy
+                max_concepts = policy.max_concepts_per_file
+        
+        return best_policy or self._default_policy or self._get_safe_default_policy()
+    
+    def get_global_limits(self) -> Dict[str, Any]:
+        """Get global limits."""
+        return self._global_limits.copy()
+    
+    def get_valid_frame_types(self) -> List[str]:
+        """Get list of valid frame types."""
+        return self._valid_frame_types.copy()
+    
+    def validate_frame_type(self, frame_type: str) -> bool:
+        """
+        Check if a frame type is valid.
+        
+        Args:
+            frame_type: The frame type to validate
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        return frame_type in self._valid_frame_types
+    
+    def enforce_caps(
+        self,
+        concepts: List[Any],
+        frames: List[Any],
+        contradictions: List[Any],
+        policy: IngestPolicy
+    ) -> Dict[str, Any]:
+        """
+        Enforce policy caps on the analysis results.
+        
+        Args:
+            concepts: List of concepts to cap
+            frames: List of frames to cap
+            contradictions: List of contradictions
+            policy: Policy to enforce
+            
+        Returns:
+            Dict with capped results:
+            - concepts: Capped concepts list
+            - frames: Capped frames list
+            - contradictions: Filtered contradictions
+            - frames_filtered: List of filtered frame types
+            - caps_applied: Dict of applied caps
+        """
+        capped_concepts = concepts[:policy.max_concepts_per_file]
+        
+        # Filter frames by allowed types and cap
+        allowed_frames = []
+        filtered_frames = []
+        
+        for frame in frames:
+            frame_type = getattr(frame, 'type', None) or (frame.get('type') if isinstance(frame, dict) else None)
+            if frame_type in policy.allowed_frame_types:
+                allowed_frames.append(frame)
+            else:
+                filtered_frames.append(frame_type or 'unknown')
+        
+        capped_frames = allowed_frames[:policy.max_frames_per_chunk]
+        
+        # Apply contradiction tolerance
+        filtered_contradictions = []
+        if contradictions:
+            for contradiction in contradictions:
+                # Assume contradictions have a 'score' or 'confidence' field
+                score = getattr(contradiction, 'score', None) or (
+                    contradiction.get('score') if isinstance(contradiction, dict) else 1.0
+                )
+                if score is None:
+                    score = 1.0
+                
+                if score >= policy.contradiction_tolerance:
+                    filtered_contradictions.append(contradiction)
+        
+        return {
+            "concepts": capped_concepts,
+            "frames": capped_frames,
+            "contradictions": filtered_contradictions if policy.write_contradictions_to_memories else [],
+            "frames_filtered": filtered_frames,
+            "caps_applied": {
+                "concepts_before": len(concepts),
+                "concepts_after": len(capped_concepts),
+                "frames_before": len(frames),
+                "frames_after": len(capped_frames),
+                "frames_filtered_count": len(filtered_frames),
+                "contradictions_before": len(contradictions) if contradictions else 0,
+                "contradictions_after": len(filtered_contradictions),
+                "write_contradictions": policy.write_contradictions_to_memories,
+            }
+        }
+
+
+# Global policy manager instance
+_policy_manager: Optional[IngestPolicyManager] = None
+
+
+def get_ingest_policy_manager() -> IngestPolicyManager:
+    """Get or create the global policy manager instance."""
+    global _policy_manager
+    if _policy_manager is None:
+        _policy_manager = IngestPolicyManager()
+    return _policy_manager
+
+
+def get_ingest_policy(roles: Optional[List[str]] = None) -> IngestPolicy:
+    """
+    Convenience function to get ingest policy for roles.
+    
+    Args:
+        roles: List of user roles
+        
+    Returns:
+        IngestPolicy for the user
+    """
+    manager = get_ingest_policy_manager()
+    return manager.get_policy(roles)

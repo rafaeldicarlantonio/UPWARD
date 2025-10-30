@@ -10,6 +10,7 @@ from vendors.supabase_client import get_client
 from ingest.pipeline import AnalysisResult
 from feature_flags import get_feature_flag
 from core.metrics import ImplicateRefreshMetrics
+from core.policy import get_ingest_policy_manager, IngestPolicy
 
 
 @dataclass
@@ -310,18 +311,20 @@ def commit_analysis(
     memory_id: Optional[str] = None,
     file_id: Optional[str] = None,
     chunk_idx: Optional[int] = None,
+    user_roles: Optional[List[str]] = None,
 ) -> CommitResult:
     """
-    Commit analysis results to the database (idempotent).
+    Commit analysis results to the database (idempotent) with policy enforcement.
     
     This function:
-    1. Upserts concept entities with stable slugified names
-    2. Upserts frame entities (as artifact type) with stable names
-    3. Creates entity_edges (idempotent):
+    1. Applies role-based policy caps and tolerances
+    2. Upserts concept entities with stable slugified names
+    3. Upserts frame entities (as artifact type) with stable names
+    4. Creates entity_edges (idempotent):
        - frames evidence_of concepts
        - supports/contradicts edges between entities
-    4. Updates memory contradictions
-    5. Enqueues implicate_refresh jobs (if flag is enabled)
+    5. Updates memory contradictions (based on policy)
+    6. Enqueues implicate_refresh jobs (if flag is enabled)
     
     Args:
         sb: Supabase client
@@ -329,6 +332,7 @@ def commit_analysis(
         memory_id: Optional memory ID to update contradictions
         file_id: Optional file ID for stable frame naming
         chunk_idx: Optional chunk index for stable frame naming
+        user_roles: List of user roles for policy enforcement
     
     Returns:
         CommitResult with entity IDs, edge IDs, and job counts
@@ -342,9 +346,29 @@ def commit_analysis(
         errors=[],
     )
     
-    # 1. Upsert concept entities with stable IDs
+    # Get and enforce policy
+    policy_manager = get_ingest_policy_manager()
+    policy = policy_manager.get_policy(user_roles)
+    
+    # Enforce caps on analysis results
+    enforced = policy_manager.enforce_caps(
+        concepts=analysis.concepts,
+        frames=analysis.frames,
+        contradictions=analysis.contradictions,
+        policy=policy
+    )
+    
+    # Use the capped/filtered results
+    capped_concepts = enforced["concepts"]
+    capped_frames = enforced["frames"]
+    filtered_contradictions = enforced["contradictions"]
+    
+    # Log policy application
+    print(f"Policy applied (role={policy.role}): {enforced['caps_applied']}")
+    
+    # 1. Upsert concept entities with stable IDs (using capped list)
     concept_name_to_id: Dict[str, str] = {}
-    for concept in analysis.concepts:
+    for concept in capped_concepts:
         concept_name = concept.get("name", "")
         if not concept_name:
             continue
@@ -358,9 +382,9 @@ def commit_analysis(
         else:
             result.errors.append(f"Failed to upsert concept: {concept_name}")
     
-    # 2. Upsert frame entities with stable naming
+    # 2. Upsert frame entities with stable naming (using capped and filtered list)
     frame_id_to_entity_id: Dict[str, str] = {}
-    for frame in analysis.frames:
+    for frame in capped_frames:
         frame_entity_id = upsert_frame_entity(
             sb, 
             frame.frame_id, 
@@ -375,8 +399,8 @@ def commit_analysis(
             result.errors.append(f"Failed to upsert frame: {frame.frame_id}")
     
     # 3. Create entity_edges
-    # 3a. Frames evidence_of concepts (based on frame roles)
-    for frame in analysis.frames:
+    # 3a. Frames evidence_of concepts (based on frame roles, using capped frames)
+    for frame in capped_frames:
         frame_entity_id = frame_id_to_entity_id.get(frame.frame_id)
         if not frame_entity_id:
             continue
@@ -434,17 +458,17 @@ def commit_analysis(
             if edge_id:
                 result.edge_ids.append(edge_id)
     
-    # 4. Update memory contradictions
-    if memory_id and analysis.contradictions:
+    # 4. Update memory contradictions (using filtered contradictions based on policy)
+    if memory_id and filtered_contradictions:
         contradictions_dicts = [
             {
-                "subject_entity_id": c.subject_entity_id,
-                "subject_text": c.subject_text,
-                "claim_a": c.claim_a,
-                "claim_b": c.claim_b,
-                "evidence_ids": list(c.evidence_ids),
+                "subject_entity_id": c.subject_entity_id if hasattr(c, 'subject_entity_id') else c.get("subject_entity_id"),
+                "subject_text": c.subject_text if hasattr(c, 'subject_text') else c.get("subject_text", ""),
+                "claim_a": c.claim_a if hasattr(c, 'claim_a') else c.get("claim_a", ""),
+                "claim_b": c.claim_b if hasattr(c, 'claim_b') else c.get("claim_b", ""),
+                "evidence_ids": list(c.evidence_ids) if hasattr(c, 'evidence_ids') else list(c.get("evidence_ids", [])),
             }
-            for c in analysis.contradictions
+            for c in filtered_contradictions
         ]
         
         if not update_memory_contradictions(sb, memory_id, contradictions_dicts):

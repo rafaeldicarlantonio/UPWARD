@@ -1,7 +1,8 @@
 """
 Role-Based Access Control (RBAC) module.
 
-Provides role definitions, capability constants, and authorization logic.
+Provides role definitions, capability constants, authorization logic,
+and role resolution from JWT/API keys.
 """
 
 from .roles import (
@@ -31,6 +32,16 @@ from .capabilities import (
     validate_role,
 )
 
+from .resolve import (
+    # Data classes
+    ResolvedUser,
+    RoleResolver,
+    # Functions
+    configure_resolver,
+    get_resolver,
+    reset_resolver,
+)
+
 __all__ = [
     # Roles
     "ROLE_GENERAL",
@@ -50,8 +61,15 @@ __all__ = [
     "CAP_MANAGE_ROLES",
     "CAP_VIEW_DEBUG",
     "ALL_CAPABILITIES",
-    # Functions
+    # Capability Functions
     "has_capability",
     "get_role_capabilities",
     "validate_role",
+    # Resolver Classes
+    "ResolvedUser",
+    "RoleResolver",
+    # Resolver Functions
+    "configure_resolver",
+    "get_resolver",
+    "reset_resolver",
 ]

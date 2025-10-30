@@ -151,7 +151,15 @@ def mock_supabase():
         
         elif name == "entity_edges":
             mock_table = Mock()
+            mock_select = Mock()
             mock_insert = Mock()
+            
+            # Select returns empty (edge doesn't exist)
+            mock_select_query = Mock()
+            mock_select_query.eq.return_value = mock_select_query
+            mock_select_query.limit.return_value = mock_select_query
+            mock_select_query.execute.return_value.data = []
+            mock_select.return_value = mock_select_query
             
             edge_counter = [0]
             def insert_edge(payload):
@@ -162,6 +170,7 @@ def mock_supabase():
                 return mock_query
             mock_insert.side_effect = insert_edge
             
+            mock_table.select = mock_select
             mock_table.insert = mock_insert
             return mock_table
         

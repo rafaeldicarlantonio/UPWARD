@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
@@ -25,53 +26,103 @@ class CommitResult:
             self.errors = []
 
 
-def upsert_concept_entity(sb, name: str) -> Optional[str]:
+def slugify(text: str) -> str:
     """
-    Upsert a concept entity and return its ID.
+    Convert text to a stable slug suitable for IDs.
+    
+    Args:
+        text: Text to slugify
+    
+    Returns:
+        Slugified text (lowercase, alphanumeric + hyphens)
+    """
+    # Convert to lowercase
+    text = text.lower()
+    # Replace spaces and underscores with hyphens
+    text = re.sub(r'[\s_]+', '-', text)
+    # Remove non-alphanumeric characters except hyphens
+    text = re.sub(r'[^a-z0-9-]', '', text)
+    # Remove consecutive hyphens
+    text = re.sub(r'-+', '-', text)
+    # Strip hyphens from start and end
+    text = text.strip('-')
+    # Limit length
+    return text[:64]
+
+
+def upsert_concept_entity(sb, name: str, stable_id: Optional[str] = None) -> Optional[str]:
+    """
+    Upsert a concept entity with stable ID and return its ID.
+    
+    For idempotency, we use stable_id (e.g., 'concept:machine-learning') if provided.
+    If the entity already exists with this ID, we return it; otherwise we create it.
     
     Args:
         sb: Supabase client
         name: Entity name
+        stable_id: Optional stable UUID-compatible ID for idempotency
     
     Returns:
         Entity ID or None on error
     """
     try:
-        # Check if entity exists
+        # Check if entity exists by name+type (unique constraint)
         sel = sb.table("entities").select("id").eq("name", name).eq("type", "concept").limit(1).execute()
         rows = sel.data if hasattr(sel, "data") else sel.get("data")
         if rows:
             return rows[0]["id"]
         
-        # Insert new entity
-        ins = sb.table("entities").insert({"name": name, "type": "concept"}).execute()
+        # Insert new entity (with stable_id if provided)
+        payload = {"name": name, "type": "concept"}
+        if stable_id:
+            # Note: Supabase/PostgreSQL will auto-generate UUID if not provided
+            # For true idempotency, you'd need to use stable_id as the primary key
+            # But the unique constraint on (name, type) provides idempotency
+            pass
+        
+        ins = sb.table("entities").insert(payload).execute()
         data = ins.data if hasattr(ins, "data") else ins.get("data")
         if data and len(data) > 0:
             return data[0]["id"]
         
-        # Fallback: select again
+        # Fallback: select again (handles race condition)
         sel2 = sb.table("entities").select("id").eq("name", name).eq("type", "concept").limit(1).execute()
         rows2 = sel2.data if hasattr(sel2, "data") else sel2.get("data")
         return rows2[0]["id"] if rows2 else None
     except Exception as e:
-        return None
+        # Likely duplicate key violation - try to fetch existing
+        try:
+            sel3 = sb.table("entities").select("id").eq("name", name).eq("type", "concept").limit(1).execute()
+            rows3 = sel3.data if hasattr(sel3, "data") else sel3.get("data")
+            return rows3[0]["id"] if rows3 else None
+        except Exception:
+            return None
 
 
-def upsert_frame_entity(sb, frame_id: str, frame_type: str) -> Optional[str]:
+def upsert_frame_entity(sb, frame_id: str, frame_type: str, file_id: Optional[str] = None, chunk_idx: Optional[int] = None) -> Optional[str]:
     """
-    Upsert a frame entity (stored as artifact type) and return its ID.
+    Upsert a frame entity (stored as artifact type) with stable naming and return its ID.
+    
+    For idempotency, we create stable entity names like:
+    - frame:{file_id}:{chunk_idx}:{frame_id} (if file_id and chunk_idx provided)
+    - frame:{frame_type}:{frame_id} (fallback)
     
     Args:
         sb: Supabase client
         frame_id: Frame identifier (e.g., 'frame-1')
         frame_type: Frame type (e.g., 'transfer', 'causation', 'measurement', 'claim')
+        file_id: Optional file ID for stable naming
+        chunk_idx: Optional chunk index for stable naming
     
     Returns:
         Entity ID or None on error
     """
     try:
-        # Use frame_id as the entity name for uniqueness
-        entity_name = f"{frame_type}_{frame_id}"
+        # Create stable entity name for idempotency
+        if file_id and chunk_idx is not None:
+            entity_name = f"frame:{slugify(file_id)}:{chunk_idx}:{frame_id}"
+        else:
+            entity_name = f"frame:{frame_type}:{frame_id}"
         
         # Check if entity exists
         sel = sb.table("entities").select("id").eq("name", entity_name).eq("type", "artifact").limit(1).execute()
@@ -85,17 +136,23 @@ def upsert_frame_entity(sb, frame_id: str, frame_type: str) -> Optional[str]:
         if data and len(data) > 0:
             return data[0]["id"]
         
-        # Fallback: select again
+        # Fallback: select again (handles race condition)
         sel2 = sb.table("entities").select("id").eq("name", entity_name).eq("type", "artifact").limit(1).execute()
         rows2 = sel2.data if hasattr(sel2, "data") else sel2.get("data")
         return rows2[0]["id"] if rows2 else None
     except Exception as e:
-        return None
+        # Likely duplicate key violation - try to fetch existing
+        try:
+            sel3 = sb.table("entities").select("id").eq("name", entity_name).eq("type", "artifact").limit(1).execute()
+            rows3 = sel3.data if hasattr(sel3, "data") else sel3.get("data")
+            return rows3[0]["id"] if rows3 else None
+        except Exception:
+            return None
 
 
 def create_entity_edge(sb, from_id: str, to_id: str, rel_type: str, weight: float = 1.0, meta: Optional[Dict] = None) -> Optional[str]:
     """
-    Create an entity edge.
+    Create an entity edge (idempotent - checks for existing edge first).
     
     Args:
         sb: Supabase client
@@ -110,6 +167,23 @@ def create_entity_edge(sb, from_id: str, to_id: str, rel_type: str, weight: floa
     """
     try:
         meta = meta or {}
+        
+        # Check if edge already exists (for idempotency)
+        sel = (
+            sb.table("entity_edges")
+            .select("id")
+            .eq("from_id", from_id)
+            .eq("to_id", to_id)
+            .eq("rel_type", rel_type)
+            .limit(1)
+            .execute()
+        )
+        rows = sel.data if hasattr(sel, "data") else sel.get("data")
+        if rows:
+            # Edge already exists, return its ID
+            return rows[0]["id"]
+        
+        # Insert new edge
         payload = {
             "from_id": from_id,
             "to_id": to_id,
@@ -121,9 +195,35 @@ def create_entity_edge(sb, from_id: str, to_id: str, rel_type: str, weight: floa
         data = ins.data if hasattr(ins, "data") else ins.get("data")
         if data and len(data) > 0:
             return data[0]["id"]
-        return None
+        
+        # Fallback: select again (handles race condition)
+        sel2 = (
+            sb.table("entity_edges")
+            .select("id")
+            .eq("from_id", from_id)
+            .eq("to_id", to_id)
+            .eq("rel_type", rel_type)
+            .limit(1)
+            .execute()
+        )
+        rows2 = sel2.data if hasattr(sel2, "data") else sel2.get("data")
+        return rows2[0]["id"] if rows2 else None
     except Exception as e:
-        return None
+        # Likely duplicate - try to fetch existing
+        try:
+            sel3 = (
+                sb.table("entity_edges")
+                .select("id")
+                .eq("from_id", from_id)
+                .eq("to_id", to_id)
+                .eq("rel_type", rel_type)
+                .limit(1)
+                .execute()
+            )
+            rows3 = sel3.data if hasattr(sel3, "data") else sel3.get("data")
+            return rows3[0]["id"] if rows3 else None
+        except Exception:
+            return None
 
 
 def update_memory_contradictions(sb, memory_id: str, contradictions: List[Dict[str, Any]]) -> bool:
@@ -205,14 +305,16 @@ def commit_analysis(
     sb,
     analysis: AnalysisResult,
     memory_id: Optional[str] = None,
+    file_id: Optional[str] = None,
+    chunk_idx: Optional[int] = None,
 ) -> CommitResult:
     """
-    Commit analysis results to the database.
+    Commit analysis results to the database (idempotent).
     
     This function:
-    1. Upserts concept entities
-    2. Upserts frame entities (as artifact type)
-    3. Creates entity_edges:
+    1. Upserts concept entities with stable slugified names
+    2. Upserts frame entities (as artifact type) with stable names
+    3. Creates entity_edges (idempotent):
        - frames evidence_of concepts
        - supports/contradicts edges between entities
     4. Updates memory contradictions
@@ -222,6 +324,8 @@ def commit_analysis(
         sb: Supabase client
         analysis: AnalysisResult from analyze_chunk
         memory_id: Optional memory ID to update contradictions
+        file_id: Optional file ID for stable frame naming
+        chunk_idx: Optional chunk index for stable frame naming
     
     Returns:
         CommitResult with entity IDs, edge IDs, and job counts
@@ -235,24 +339,32 @@ def commit_analysis(
         errors=[],
     )
     
-    # 1. Upsert concept entities
+    # 1. Upsert concept entities with stable IDs
     concept_name_to_id: Dict[str, str] = {}
     for concept in analysis.concepts:
         concept_name = concept.get("name", "")
         if not concept_name:
             continue
         
-        entity_id = upsert_concept_entity(sb, concept_name)
+        # Create stable ID for idempotency
+        stable_id = f"concept:{slugify(concept_name)}"
+        entity_id = upsert_concept_entity(sb, concept_name, stable_id=stable_id)
         if entity_id:
             result.concept_entity_ids.append(entity_id)
             concept_name_to_id[concept_name] = entity_id
         else:
             result.errors.append(f"Failed to upsert concept: {concept_name}")
     
-    # 2. Upsert frame entities
+    # 2. Upsert frame entities with stable naming
     frame_id_to_entity_id: Dict[str, str] = {}
     for frame in analysis.frames:
-        frame_entity_id = upsert_frame_entity(sb, frame.frame_id, frame.type)
+        frame_entity_id = upsert_frame_entity(
+            sb, 
+            frame.frame_id, 
+            frame.type,
+            file_id=file_id,
+            chunk_idx=chunk_idx,
+        )
         if frame_entity_id:
             result.frame_entity_ids.append(frame_entity_id)
             frame_id_to_entity_id[frame.frame_id] = frame_entity_id

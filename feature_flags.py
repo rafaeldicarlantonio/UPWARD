@@ -9,6 +9,11 @@ DEFAULT_FLAGS = {
     "retrieval.dual_index": False,
     "retrieval.liftscore": False,
     "retrieval.contradictions_pack": False,
+
+    # Ingest feature flags
+    "ingest.analysis.enabled": False,
+    "ingest.contradictions.enabled": False,
+    "ingest.implicate.refresh_enabled": False,
     
     # REDO/ledger feature flags
     "orchestrator.redo_enabled": False,

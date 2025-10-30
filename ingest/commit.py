@@ -261,43 +261,41 @@ def enqueue_implicate_refresh(sb, entity_ids: List[str]) -> int:
     """
     Enqueue implicate_refresh jobs for the given entity IDs.
     
-    Note: This is a placeholder implementation. In a production system,
-    you would use a proper job queue (e.g., Celery, RQ, or a database-backed queue).
-    For now, we'll store job requests in a simple JSONB column or a dedicated table.
+    Uses the QueueAdapter to enqueue jobs. Entity IDs are batched together
+    in a single job for efficiency.
     
     Args:
         sb: Supabase client
         entity_ids: List of entity IDs to refresh
     
     Returns:
-        Number of jobs enqueued
+        Number of jobs enqueued (1 if successful, 0 if not)
     """
     # Check if the feature flag is enabled
     if not get_feature_flag("ingest.implicate.refresh_enabled", False):
         return 0
     
+    if not entity_ids:
+        return 0
+    
     try:
-        # For now, we'll create a simple job record in a 'jobs' table
-        # If the table doesn't exist, we'll fail silently
-        # In production, you'd have a proper job queue table
-        count = 0
-        for entity_id in entity_ids:
-            try:
-                job_payload = {
-                    "job_type": "implicate_refresh",
-                    "entity_id": entity_id,
-                    "status": "pending",
-                    "created_at": "now()",
-                }
-                # Try to insert into jobs table (may not exist in test/dev)
-                # If it doesn't exist, we'll just skip it
-                sb.table("jobs").insert(job_payload).execute()
-                count += 1
-            except Exception:
-                # Table might not exist, continue
-                pass
-        return count
-    except Exception:
+        from adapters.queue import QueueAdapter
+        
+        queue = QueueAdapter(sb=sb)
+        
+        # Enqueue a single job with all entity IDs
+        # This is more efficient than creating individual jobs
+        job_id = queue.enqueue(
+            job_type="implicate_refresh",
+            payload={"entity_ids": entity_ids},
+            max_retries=3,
+        )
+        
+        return 1 if job_id else 0
+        
+    except Exception as e:
+        # Log the error but don't fail the commit
+        print(f"Failed to enqueue implicate_refresh job: {e}")
         return 0
 
 

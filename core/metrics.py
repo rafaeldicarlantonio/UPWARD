@@ -369,11 +369,104 @@ def record_feature_flag_usage(flag_name: str, enabled: bool):
     """Record feature flag usage."""
     increment_counter("feature_flag_usage_total", labels={"flag": flag_name, "enabled": str(enabled)})
 
+
+class IngestMetrics:
+    """Specific metrics for ingest analysis pipeline."""
+    
+    @staticmethod
+    def record_chunk_analyzed(
+        verbs_count: int,
+        frames_count: int,
+        concepts_count: int,
+        contradictions_count: int,
+        duration_ms: float,
+        success: bool = True
+    ):
+        """Record a chunk analysis operation."""
+        increment_counter("ingest.analysis.chunks_total", labels={"success": str(success)})
+        observe_histogram("ingest.analysis.verbs_per_chunk", verbs_count)
+        observe_histogram("ingest.analysis.frames_per_chunk", frames_count)
+        observe_histogram("ingest.analysis.concepts_suggested", concepts_count)
+        observe_histogram("ingest.analysis.contradictions_found", contradictions_count)
+        observe_histogram("ingest.analysis.duration_ms", duration_ms, labels={"success": str(success)})
+    
+    @staticmethod
+    def record_timeout():
+        """Record when chunk analysis times out."""
+        increment_counter("ingest.analysis.timeout_count")
+    
+    @staticmethod
+    def record_analysis_error(error_type: str):
+        """Record when chunk analysis fails."""
+        increment_counter("ingest.analysis.errors_total", labels={"error_type": error_type})
+    
+    @staticmethod
+    def record_entities_created(concepts_count: int, frames_count: int, edges_count: int):
+        """Record entities and edges created during commit."""
+        observe_histogram("ingest.commit.concepts_created", concepts_count)
+        observe_histogram("ingest.commit.frames_created", frames_count)
+        observe_histogram("ingest.commit.edges_created", edges_count)
+        increment_counter("ingest.commit.total")
+    
+    @staticmethod
+    def record_commit_errors(error_count: int):
+        """Record errors during commit phase."""
+        if error_count > 0:
+            increment_counter("ingest.commit.errors_total", value=error_count)
+
+
+class ImplicateRefreshMetrics:
+    """Specific metrics for implicate refresh worker."""
+    
+    @staticmethod
+    def record_job_enqueued(entity_ids_count: int):
+        """Record when implicate_refresh job is enqueued."""
+        increment_counter("implicate_refresh.enqueued")
+        observe_histogram("implicate_refresh.entity_ids_per_job", entity_ids_count)
+    
+    @staticmethod
+    def record_job_processed(
+        entity_ids_count: int,
+        processed_count: int,
+        upserted_count: int,
+        duration_s: float,
+        success: bool = True
+    ):
+        """Record when implicate_refresh job is processed."""
+        increment_counter("implicate_refresh.processed", labels={"success": str(success)})
+        observe_histogram("implicate_refresh.entities_requested", entity_ids_count)
+        observe_histogram("implicate_refresh.entities_processed", processed_count)
+        observe_histogram("implicate_refresh.entities_upserted", upserted_count)
+        observe_histogram("implicate_refresh.job_duration_seconds", duration_s, labels={"success": str(success)})
+    
+    @staticmethod
+    def record_job_failed(error_type: str, retry_count: int):
+        """Record when implicate_refresh job fails."""
+        increment_counter("implicate_refresh.failed", labels={"error_type": error_type})
+        observe_histogram("implicate_refresh.retry_count", retry_count)
+    
+    @staticmethod
+    def record_worker_iteration(jobs_processed: int, duration_s: float):
+        """Record a worker iteration (run_once)."""
+        increment_counter("implicate_refresh.worker_iterations")
+        observe_histogram("implicate_refresh.jobs_per_iteration", jobs_processed)
+        observe_histogram("implicate_refresh.iteration_duration_seconds", duration_s)
+    
+    @staticmethod
+    def record_deduplication(original_count: int, deduplicated_count: int):
+        """Record entity ID deduplication."""
+        if original_count > deduplicated_count:
+            duplicates = original_count - deduplicated_count
+            increment_counter("implicate_refresh.duplicates_removed", value=duplicates)
+            observe_histogram("implicate_refresh.deduplication_ratio", duplicates / original_count)
+
+
 # Export the main functions and classes
 __all__ = [
     'MetricsCollector', 'MetricCounter', 'MetricGauge', 'MetricHistogram',
     'increment_counter', 'set_gauge', 'observe_histogram', 'get_counter', 
     'get_gauge', 'get_histogram_stats', 'get_all_metrics', 'reset_metrics',
-    'OrchestratorMetrics', 'LedgerMetrics', 'RetrievalMetrics', 'time_operation', 
-    'record_api_call', 'record_error', 'record_feature_flag_usage'
+    'OrchestratorMetrics', 'LedgerMetrics', 'RetrievalMetrics', 'IngestMetrics',
+    'ImplicateRefreshMetrics', 'time_operation', 'record_api_call', 'record_error', 
+    'record_feature_flag_usage'
 ]

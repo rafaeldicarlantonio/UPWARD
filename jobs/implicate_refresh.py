@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from jobs.implicate_builder import ImplicateBuilder
 from adapters.queue import QueueAdapter, Job
 from vendors.supabase_client import get_client
+from core.metrics import ImplicateRefreshMetrics
 
 # Setup logging
 logging.basicConfig(
@@ -85,8 +86,14 @@ class ImplicateRefreshWorker:
         
         logger.info(f"Job {job.id}: Processing {len(entity_ids)} entity IDs")
         
-        # Remove duplicates to ensure idempotency
-        entity_ids = list(set(entity_ids))
+        # Remove duplicates to ensure idempotency (sorted for determinism)
+        original_count = len(entity_ids)
+        entity_ids = sorted(list(set(entity_ids)))
+        deduplicated_count = len(entity_ids)
+        
+        # Record deduplication metrics
+        if original_count > deduplicated_count:
+            ImplicateRefreshMetrics.record_deduplication(original_count, deduplicated_count)
         
         # Call implicate builder in incremental mode
         try:
@@ -112,11 +119,26 @@ class ImplicateRefreshWorker:
                 f"Errors: {len(metrics.errors)}"
             )
             
+            # Record job processing metrics
+            ImplicateRefreshMetrics.record_job_processed(
+                entity_ids_count=metrics.entity_ids_requested,
+                processed_count=metrics.entity_ids_processed,
+                upserted_count=metrics.entity_ids_upserted,
+                duration_s=duration,
+                success=metrics.success
+            )
+            
             return metrics
             
         except Exception as e:
             error_msg = f"Unexpected error: {str(e)}"
             logger.error(f"Job {job.id}: {error_msg}", exc_info=True)
+            
+            # Record job failure metrics
+            ImplicateRefreshMetrics.record_job_failed(
+                error_type=type(e).__name__,
+                retry_count=job.retry_count
+            )
             
             return RefreshMetrics(
                 job_id=job.id,
@@ -139,6 +161,7 @@ class ImplicateRefreshWorker:
         Returns:
             Summary statistics
         """
+        iteration_start = time.time()
         logger.info(f"Checking for pending implicate_refresh jobs (limit: {job_limit})")
         
         # Dequeue pending jobs
@@ -203,6 +226,13 @@ class ImplicateRefreshWorker:
             f"Batch complete: {summary['jobs_processed']} jobs, "
             f"{summary['total_entities_processed']} entities processed, "
             f"{summary['total_entities_upserted']} upserted"
+        )
+        
+        # Record worker iteration metrics
+        iteration_duration = time.time() - iteration_start
+        ImplicateRefreshMetrics.record_worker_iteration(
+            jobs_processed=len(jobs),
+            duration_s=iteration_duration
         )
         
         return summary

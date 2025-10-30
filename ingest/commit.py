@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from vendors.supabase_client import get_client
 from ingest.pipeline import AnalysisResult
 from feature_flags import get_feature_flag
+from core.metrics import ImplicateRefreshMetrics
 
 
 @dataclass
@@ -290,6 +291,10 @@ def enqueue_implicate_refresh(sb, entity_ids: List[str]) -> int:
             payload={"entity_ids": entity_ids},
             max_retries=3,
         )
+        
+        # Record enqueue metric
+        if job_id:
+            ImplicateRefreshMetrics.record_job_enqueued(len(entity_ids))
         
         return 1 if job_id else 0
         

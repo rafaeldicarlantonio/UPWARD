@@ -133,6 +133,24 @@ def debug_metrics(
         # Add key metrics summary
         key_metrics = {}
         
+        # Ingest analysis metrics
+        chunks_analyzed = metrics["counters"].get("ingest.analysis.chunks_total", [])
+        if chunks_analyzed:
+            key_metrics["ingest_chunks_analyzed_total"] = sum(c["value"] for c in chunks_analyzed)
+        
+        timeouts = metrics["counters"].get("ingest.analysis.timeout_count", [])
+        if timeouts:
+            key_metrics["ingest_analysis_timeouts"] = sum(c["value"] for c in timeouts)
+        
+        # Implicate refresh metrics
+        refresh_enqueued = metrics["counters"].get("implicate_refresh.enqueued", [])
+        if refresh_enqueued:
+            key_metrics["implicate_refresh_enqueued_total"] = sum(c["value"] for c in refresh_enqueued)
+        
+        refresh_processed = metrics["counters"].get("implicate_refresh.processed", [])
+        if refresh_processed:
+            key_metrics["implicate_refresh_processed_total"] = sum(c["value"] for c in refresh_processed)
+        
         # Dual queries
         dual_queries = metrics["counters"].get("dual_queries_total", [])
         if dual_queries:

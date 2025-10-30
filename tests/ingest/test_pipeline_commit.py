@@ -564,7 +564,8 @@ class TestHelperFunctions:
         entity_ids = ["entity-1", "entity-2", "entity-3"]
         count = enqueue_implicate_refresh(mock_supabase, entity_ids)
         
-        assert count == 3
+        # Changed: now batches all entity IDs into a single job
+        assert count == 1
     
     @patch("ingest.commit.get_feature_flag")
     def test_enqueue_implicate_refresh_when_disabled(self, mock_get_flag, mock_supabase):

@@ -20,6 +20,7 @@ from ingest.commit import commit_analysis
 from auth.light_identity import ensure_user
 from feature_flags import get_feature_flag
 from config import load_config
+from core.metrics import IngestMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,9 @@ def ingest_batch_ingest_batch_post(body: IngestBatchRequest, x_api_key: Optional
                                 f"(file_id={file_id}, memory_id={memory_id}): "
                                 f"{analysis_elapsed_ms:.1f}ms > {max_ms_per_chunk}ms"
                             )
+                            # Record timeout metric
+                            IngestMetrics.record_timeout()
+                            
                             all_skipped.append({
                                 "idx": chunk_idx,
                                 "reason": "analysis_timeout",
@@ -156,6 +160,16 @@ def ingest_batch_ingest_batch_post(body: IngestBatchRequest, x_api_key: Optional
                                 "max_ms": max_ms_per_chunk,
                             })
                             continue
+                        
+                        # Record successful analysis metrics
+                        IngestMetrics.record_chunk_analyzed(
+                            verbs_count=len(analysis.predicates),
+                            frames_count=len(analysis.frames),
+                            concepts_count=len(analysis.concepts),
+                            contradictions_count=len(analysis.contradictions),
+                            duration_ms=analysis_elapsed_ms,
+                            success=True
+                        )
                         
                         # Commit analysis results
                         commit_result = commit_analysis(
@@ -166,12 +180,20 @@ def ingest_batch_ingest_batch_post(body: IngestBatchRequest, x_api_key: Optional
                             chunk_idx=chunk_idx,
                         )
                         
+                        # Record commit metrics
+                        IngestMetrics.record_entities_created(
+                            concepts_count=len(commit_result.concept_entity_ids),
+                            frames_count=len(commit_result.frame_entity_ids),
+                            edges_count=len(commit_result.edge_ids)
+                        )
+                        
                         # Log any commit errors
                         if commit_result.errors:
                             logger.warning(
                                 f"Commit errors for chunk {chunk_idx} "
                                 f"(memory_id={memory_id}): {commit_result.errors}"
                             )
+                            IngestMetrics.record_commit_errors(len(commit_result.errors))
                         
                         logger.info(
                             f"Analyzed and committed chunk {chunk_idx}: "
@@ -187,6 +209,9 @@ def ingest_batch_ingest_batch_post(body: IngestBatchRequest, x_api_key: Optional
                             f"(file_id={file_id}, memory_id={memory_id}): {e}",
                             exc_info=True
                         )
+                        # Record error metric
+                        IngestMetrics.record_analysis_error(type(e).__name__)
+                        
                         all_skipped.append({
                             "idx": chunk_idx,
                             "reason": "analysis_error",

@@ -34,6 +34,15 @@ DEFAULTS = {
     "FACTARE_MAX_SOURCES_INTERNAL": 24,
     "FACTARE_MAX_SOURCES_EXTERNAL": 8,
     "HYPOTHESES_PARETO_THRESHOLD": 0.65,
+
+    # Ingest analysis configuration
+    "INGEST_ANALYSIS_ENABLED": False,
+    "INGEST_ANALYSIS_MAX_MS_PER_CHUNK": 40,
+    "INGEST_ANALYSIS_MAX_VERBS": 20,
+    "INGEST_ANALYSIS_MAX_FRAMES": 10,
+    "INGEST_ANALYSIS_MAX_CONCEPTS": 10,
+    "INGEST_CONTRADICTIONS_ENABLED": False,
+    "INGEST_IMPLICATE_REFRESH_ENABLED": False,
 }
 
 def load_config():
@@ -135,6 +144,22 @@ def load_config():
                     raise ValueError("HYPOTHESES_PARETO_THRESHOLD must be between 0.0 and 1.0")
             except (ValueError, TypeError):
                 raise RuntimeError(f"HYPOTHESES_PARETO_THRESHOLD must be a float between 0.0 and 1.0, got: {val}")
+        elif k in {"INGEST_ANALYSIS_ENABLED", "INGEST_CONTRADICTIONS_ENABLED", "INGEST_IMPLICATE_REFRESH_ENABLED"}:
+            val = val.lower() in ('true', '1', 'yes', 'on') if isinstance(val, str) else bool(val)
+        elif k in {
+            "INGEST_ANALYSIS_MAX_MS_PER_CHUNK",
+            "INGEST_ANALYSIS_MAX_VERBS",
+            "INGEST_ANALYSIS_MAX_FRAMES",
+            "INGEST_ANALYSIS_MAX_CONCEPTS",
+        }:
+            try:
+                val = int(val)
+                if val <= 0:
+                    raise ValueError("value must be a positive integer")
+            except (ValueError, TypeError):
+                raise RuntimeError(
+                    f"{k} must be a positive integer, got: {val}"
+                )
         
         cfg[k] = val
 

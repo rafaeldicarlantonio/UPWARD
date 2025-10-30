@@ -42,6 +42,22 @@ from .resolve import (
     reset_resolver,
 )
 
+from .levels import (
+    # Level constants
+    ROLE_VISIBILITY_LEVELS,
+    DEFAULT_VISIBILITY_LEVEL,
+    TRACE_SUMMARY_MAX_LINES,
+    # Level functions
+    get_role_level,
+    get_max_role_level,
+    can_view_memory,
+    filter_memories_by_level,
+    process_trace_summary,
+    get_level_description,
+    get_roles_with_level,
+    get_roles_with_min_level,
+)
+
 __all__ = [
     # Roles
     "ROLE_GENERAL",
@@ -72,4 +88,17 @@ __all__ = [
     "configure_resolver",
     "get_resolver",
     "reset_resolver",
+    # Level Constants
+    "ROLE_VISIBILITY_LEVELS",
+    "DEFAULT_VISIBILITY_LEVEL",
+    "TRACE_SUMMARY_MAX_LINES",
+    # Level Functions
+    "get_role_level",
+    "get_max_role_level",
+    "can_view_memory",
+    "filter_memories_by_level",
+    "process_trace_summary",
+    "get_level_description",
+    "get_roles_with_level",
+    "get_roles_with_min_level",
 ]

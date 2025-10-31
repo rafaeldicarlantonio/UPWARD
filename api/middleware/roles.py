@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from core.rbac.resolve import get_resolver, ResolvedUser
+from core.metrics import record_rbac_resolution, record_role_distribution
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,11 @@ class RoleResolutionMiddleware(BaseHTTPMiddleware):
             # Attach to request state
             request.state.ctx = RequestContext(user)
             
+            # Record metrics
+            record_rbac_resolution(success=True, auth_method=user.auth_method)
+            for role in user.roles:
+                record_role_distribution(role)
+            
             # Log authentication
             logger.debug(
                 f"Resolved user for {request.method} {request.url.path}: "
@@ -106,6 +112,9 @@ class RoleResolutionMiddleware(BaseHTTPMiddleware):
             # On error during role resolution, create anonymous user as fallback
             logger.error(f"Error resolving user roles: {e}", exc_info=True)
             
+            # Record failed resolution
+            record_rbac_resolution(success=False, auth_method="error")
+            
             from core.rbac.resolve import ResolvedUser
             anonymous_user = ResolvedUser(
                 user_id=None,
@@ -115,6 +124,7 @@ class RoleResolutionMiddleware(BaseHTTPMiddleware):
                 metadata={'error': str(e)}
             )
             request.state.ctx = RequestContext(anonymous_user)
+            record_role_distribution('general')
         
         # Continue to next handler (exceptions from here should propagate)
         response = await call_next(request)

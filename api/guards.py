@@ -11,6 +11,7 @@ from fastapi import Request, HTTPException, status
 
 from core.rbac import has_capability
 from api.middleware.roles import get_current_user
+from core.metrics import record_rbac_check, audit_rbac_denial
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,25 @@ def require(capability: str) -> Callable:
                 for role in ctx.roles
             )
             
+            # Record metrics
+            record_rbac_check(
+                allowed=has_required_capability,
+                capability=capability,
+                roles=ctx.roles,
+                route=str(request.url.path)
+            )
+            
             if not has_required_capability:
+                # Audit the denial
+                audit_rbac_denial(
+                    capability=capability,
+                    user_id=ctx.user_id,
+                    roles=ctx.roles,
+                    route=str(request.url.path),
+                    method=request.method,
+                    metadata={"is_authenticated": ctx.is_authenticated}
+                )
+                
                 logger.warning(
                     f"Access denied: user_id={ctx.user_id}, "
                     f"roles={ctx.roles}, required_capability={capability}"

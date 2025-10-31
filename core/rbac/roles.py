@@ -86,12 +86,13 @@ ROLE_CAPABILITIES: Dict[str, Set[str]] = {
         CAP_WRITE_CONTRADICTIONS,
     },
     
-    # Ops: Read access + debug/monitoring capabilities
+    # Ops: Read access + debug/monitoring + role management capabilities
     # For operations and monitoring, no proposal or write access
     ROLE_OPS: {
         CAP_READ_PUBLIC,
         CAP_READ_LEDGER_FULL,
         CAP_VIEW_DEBUG,
+        CAP_MANAGE_ROLES,
     },
 }
 

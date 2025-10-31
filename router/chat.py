@@ -6,7 +6,7 @@ import time
 from uuid import uuid4
 from typing import Optional, List, Dict, Any, Literal
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, model_validator
 from openai import OpenAI
 
@@ -24,6 +24,8 @@ from core.ledger import log_chat_request, write_ledger, LedgerOptions
 from core.orchestrator.redo import RedoOrchestrator
 from core.types import QueryContext, OrchestrationConfig
 from core.trace_summary import summarize_for_role
+from core.presenters import redact_chat_response  # NEW: Role-aware redaction
+from core.rbac import ROLE_GENERAL  # NEW: Default role
 from feature_flags import get_feature_flag
 from core.metrics import record_api_call, record_error, time_operation, RetrievalMetrics
 from config import load_config
@@ -228,11 +230,20 @@ def _format_contradictions(contradictions: List[Dict[str, Any]]) -> str:
 # ---------- Route ----------
 @router.post("/chat", response_model=ChatResp)
 def chat_chat_post(
+    request: Request,  # NEW: Request object for role context
     body: ChatReq,
     x_api_key: Optional[str] = Header(None),
     x_user_email: Optional[str] = Header(None),  # attribution header
 ):
     start_time = time.time()
+    
+    # Extract user roles from request context (if middleware is present)
+    user_roles = [ROLE_GENERAL]  # Default to general
+    try:
+        if hasattr(request.state, 'ctx') and hasattr(request.state.ctx, 'roles'):
+            user_roles = request.state.ctx.roles or [ROLE_GENERAL]
+    except Exception:
+        pass  # Fallback to general if context not available
     
     try:
         _auth(x_api_key)
@@ -659,7 +670,8 @@ def chat_chat_post(
         if body.debug and orchestration_warnings:
             response_warnings.extend(orchestration_warnings)
         
-        return {
+        # Build raw response
+        raw_response = {
             "session_id": session_id,
             "answer": draft.get("answer") or "",
             "citations": draft.get("citations") or [],
@@ -667,8 +679,24 @@ def chat_chat_post(
             "autosave": autosave,
             "redteam": verdict,
             "metrics": response_metrics,
-            "warnings": response_warnings if body.debug else []
+            "warnings": response_warnings if body.debug else [],
+            # Include context and provenance data that may need redaction
+            "context": [
+                {
+                    "id": chunk.get("id"),
+                    "text": chunk.get("text"),
+                    "type": chunk.get("type"),
+                    "provenance": chunk.get("provenance"),
+                    "ledger": chunk.get("process_trace") or chunk.get("ledger")
+                }
+                for chunk in retrieved_chunks
+            ] if body.debug else []
         }
+        
+        # Apply role-based redaction
+        redacted_response = redact_chat_response(raw_response, user_roles)
+        
+        return redacted_response
     
     except Exception as e:
         # Record error metrics

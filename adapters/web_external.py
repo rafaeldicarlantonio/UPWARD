@@ -21,27 +21,40 @@ class WebExternalAdapter:
     
     def __init__(
         self, 
-        timeout: int = 5, 
+        timeout: int = 5,
+        timeout_ms: Optional[int] = None,
         max_retries: int = 2,
         url_matcher: Optional[Any] = None,
-        rate_limiter: Optional[Any] = None
+        rate_limiter: Optional[Any] = None,
+        continue_on_failure: bool = True
     ):
         """
         Initialize web external adapter.
         
         Args:
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (deprecated, use timeout_ms)
+            timeout_ms: Request timeout in milliseconds (preferred)
             max_retries: Maximum retry attempts
             url_matcher: URLMatcher instance for whitelist checking
             rate_limiter: RateLimiter instance for rate limiting
+            continue_on_failure: If True, continue with other sources on failure
         """
         if not AIOHTTP_AVAILABLE:
             raise ImportError("aiohttp is required for WebExternalAdapter")
-        self.timeout = timeout
+        
+        # Use timeout_ms if provided, otherwise convert timeout seconds to ms
+        if timeout_ms is not None:
+            self.timeout_ms = timeout_ms
+            self.timeout = timeout_ms / 1000.0
+        else:
+            self.timeout = timeout
+            self.timeout_ms = int(timeout * 1000)
+        
         self.max_retries = max_retries
         self.session: Optional[aiohttp.ClientSession] = None
         self.url_matcher = url_matcher
         self.rate_limiter = rate_limiter
+        self.continue_on_failure = continue_on_failure
         
         # Statistics
         self.stats = {
@@ -50,7 +63,8 @@ class WebExternalAdapter:
             'not_whitelisted': 0,
             'rate_limited': 0,
             'successful': 0,
-            'failed': 0
+            'failed': 0,
+            'timeouts': 0
         }
     
     async def __aenter__(self):
@@ -63,8 +77,9 @@ class WebExternalAdapter:
         await self.close()
     
     async def _ensure_session(self):
-        """Ensure HTTP session is created."""
+        """Ensure HTTP session is created with configured timeout."""
         if self.session is None or self.session.closed:
+            # Create timeout from milliseconds
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
@@ -76,6 +91,7 @@ class WebExternalAdapter:
                     'Connection': 'keep-alive',
                 }
             )
+            logger.debug(f"Created HTTP session with timeout={self.timeout}s ({self.timeout_ms}ms)")
     
     async def fetch_content(self, url: str) -> Optional[str]:
         """
@@ -138,12 +154,15 @@ class WebExternalAdapter:
                         return None
                         
             except asyncio.TimeoutError:
+                logger.warning(f"Timeout fetching {url} (attempt {attempt + 1}/{self.max_retries + 1})")
+                self.stats['timeouts'] += 1
                 if attempt < self.max_retries:
                     await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
                     continue
                 self.stats['failed'] += 1
                 return None
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Error fetching {url}: {type(e).__name__} (attempt {attempt + 1}/{self.max_retries + 1})")
                 if attempt < self.max_retries:
                     await asyncio.sleep(0.5 * (attempt + 1))
                     continue
@@ -280,7 +299,8 @@ class WebExternalAdapter:
             'not_whitelisted': 0,
             'rate_limited': 0,
             'successful': 0,
-            'failed': 0
+            'failed': 0,
+            'timeouts': 0
         }
     
     def get_domain(self, url: str) -> Optional[str]:

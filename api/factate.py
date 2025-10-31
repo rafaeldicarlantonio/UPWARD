@@ -109,11 +109,17 @@ class TimingsData(BaseModel):
     total_ms: float
     redaction_ms: float = 0.0
 
+class SourcesData(BaseModel):
+    """Source counts in response."""
+    internal: int = Field(ge=0, description="Number of internal sources used")
+    external: int = Field(ge=0, description="Number of external sources used")
+
 class CompareResponse(BaseModel):
     """Response model for factare comparison."""
     compare_summary: Dict[str, Any]
     contradictions: List[ContradictionData]
     used_external: bool
+    sources: SourcesData
     timings: TimingsData
     metadata: Dict[str, Any]
 
@@ -250,10 +256,24 @@ async def compare(
         # Add processing time to metadata
         result.metadata['api_processing_ms'] = (time.time() - start_time) * 1000
         
+        # Calculate source counts
+        internal_count = len(retrieval_candidates)
+        external_count = 0
+        if result.used_external and 'external_sources' in compare_summary_dict:
+            external_sources = compare_summary_dict.get('external_sources', {})
+            external_items = external_sources.get('items', [])
+            external_count = len(external_items)
+        
+        sources = SourcesData(
+            internal=internal_count,
+            external=external_count
+        )
+        
         return CompareResponse(
             compare_summary=compare_summary_dict,
             contradictions=contradictions,
             used_external=result.used_external,
+            sources=sources,
             timings=timings,
             metadata=result.metadata
         )
@@ -318,28 +338,8 @@ async def health_check():
         "timestamp": str(time.time())
     }
 
-# Error handlers
-@router.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions with proper error format."""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": exc.detail,
-            "code": str(exc.status_code),
-            "timestamp": str(time.time())
-        }
-    )
-
-@router.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """Handle general exceptions with proper error format."""
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": "Internal server error",
-            "detail": str(exc),
-            "code": "500",
-            "timestamp": str(time.time())
-        }
-    )
+# Note: Error handlers should be added at the app level, not router level
+# Example for app setup:
+# @app.exception_handler(HTTPException)
+# async def http_exception_handler(request: Request, exc: HTTPException):
+#     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})

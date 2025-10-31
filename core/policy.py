@@ -575,3 +575,61 @@ def get_ingest_policy(roles: Optional[List[str]] = None) -> IngestPolicy:
     """
     manager = get_ingest_policy_manager()
     return manager.get_policy(roles)
+
+
+# ============================================================================
+# External Source Role Gating
+# ============================================================================
+
+def can_use_external_compare(user_roles: List[str]) -> bool:
+    """
+    Check if user can use external source comparison.
+    
+    Returns True only if:
+    1. external_compare feature flag is enabled
+    2. User has at least one role in allowed_roles_for_external from policy
+    
+    Args:
+        user_roles: List of user's role names
+        
+    Returns:
+        True if user can access external comparison, False otherwise
+        
+    Examples:
+        >>> can_use_external_compare(["general"])
+        False  # General not in allowed_roles
+        
+        >>> can_use_external_compare(["pro"])
+        True  # If flag is on and pro is in policy.allowed_roles_for_external
+        
+        >>> can_use_external_compare(["analytics", "general"])
+        True  # Has at least one allowed role
+    """
+    # Import here to avoid circular dependency
+    from feature_flags import get_feature_flag, DEFAULT_FLAGS
+    from core.config_loader import get_loader
+    
+    # Check feature flag first
+    flag_enabled = get_feature_flag("external_compare", DEFAULT_FLAGS.get("external_compare", False))
+    if not flag_enabled:
+        logger.debug("External compare disabled by feature flag")
+        return False
+    
+    # Get allowed roles from policy
+    try:
+        loader = get_loader()
+        policy = loader.get_compare_policy()
+        allowed_roles = policy.allowed_roles_for_external
+    except Exception as e:
+        logger.error(f"Failed to load external compare policy: {e}")
+        return False
+    
+    # Check if user has any allowed role
+    has_allowed_role = any(role in allowed_roles for role in user_roles)
+    
+    if not has_allowed_role:
+        logger.debug(
+            f"User roles {user_roles} not in allowed_roles_for_external {allowed_roles}"
+        )
+    
+    return has_allowed_role

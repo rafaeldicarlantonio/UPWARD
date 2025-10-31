@@ -22,6 +22,9 @@ DEFAULT_FLAGS = {
     # Factare feature flags
     "factare.enabled": False,
     "factare.allow_external": False,
+    
+    # External comparison feature flag
+    "external_compare": False,
 }
 
 def get_feature_flag(flag_name: str, default: bool = False) -> bool:
@@ -92,3 +95,26 @@ def initialize_default_flags() -> None:
                 set_feature_flag(flag_name, default_value)
     except Exception as e:
         raise RuntimeError(f"Failed to initialize default flags: {e}")
+
+# ============================================================================
+# Feature Flag Accessor Class
+# ============================================================================
+
+class FeatureFlags:
+    """
+    Simple accessor for feature flags using get_feature_flag.
+    
+    Provides attribute-style access to feature flags for convenience.
+    """
+    
+    @property
+    def external_compare(self) -> bool:
+        """Check if external comparison is enabled."""
+        return get_feature_flag("external_compare", DEFAULT_FLAGS.get("external_compare", False))
+    
+    def __repr__(self):
+        return f"<FeatureFlags external_compare={self.external_compare}>"
+
+
+# Global flags instance
+flags = FeatureFlags()

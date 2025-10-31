@@ -13,6 +13,7 @@ from nlp.verbs import extract_predicates, PredicateFrame
 from nlp.frames import extract_event_frames, EventFrame
 from nlp.concepts import suggest_concepts
 from nlp.contradictions import detect_contradictions, ContradictionCandidate
+from core.guards import forbid_external_persistence
 
 # -----------------------------
 # small utilities
@@ -186,15 +187,28 @@ def upsert_memories_from_chunks(
     source: str = "upload",
     text_col_env: str = "text",
     author_user_id: Optional[str] = None,
+    source_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     - exact duplicates (sha256) are skipped
     - near-duplicates (SimHash Hamming <= SIMHASH_DISTANCE) are updated in-place when UPSERT_MODE=update
       or appended as new when UPSERT_MODE=append
     - entity_ids are linked and included in Pinecone metadata
+    
+    CRITICAL: This function guards against external content persistence.
+    If source_metadata contains external markers (URL, external=True), it will raise.
     """
     tags = tags or []
     role_view = role_view or []
+    
+    # CRITICAL: Guard against external content ingestion
+    # Check if the source has external markers before processing ANY chunks
+    if source_metadata:
+        forbid_external_persistence(
+            [source_metadata],
+            item_type="memory_source",
+            raise_on_external=True
+        )
     text_col = (os.getenv("MEMORIES_TEXT_COLUMN") or text_col_env or "text").strip().lower()
     mode = (os.getenv("UPSERT_MODE", "update")).lower()
     sim_thresh = int(os.getenv("SIMHASH_DISTANCE", "6"))

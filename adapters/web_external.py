@@ -2,9 +2,12 @@
 
 import asyncio
 import time
+import logging
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 import re
+
+logger = logging.getLogger(__name__)
 
 try:
     import aiohttp
@@ -51,12 +54,17 @@ class WebExternalAdapter:
         """
         Fetch content from a URL.
         
+        IMPORTANT: This fetches external content for display/comparison ONLY.
+        External content must NEVER be persisted to memories/entities/edges.
+        All results should be marked with provenance.url to prevent auto-ingestion.
+        
         Args:
             url: URL to fetch content from
             
         Returns:
             Extracted text content or None if failed
         """
+        logger.info(f"Fetching external content from {url} (display only, will not persist)")
         if not url or not self._is_valid_url(url):
             return None
         

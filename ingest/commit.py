@@ -11,6 +11,7 @@ from ingest.pipeline import AnalysisResult
 from feature_flags import get_feature_flag
 from core.metrics import ImplicateRefreshMetrics
 from core.policy import get_ingest_policy_manager, IngestPolicy
+from core.guards import forbid_external_persistence
 
 
 @dataclass
@@ -312,11 +313,13 @@ def commit_analysis(
     file_id: Optional[str] = None,
     chunk_idx: Optional[int] = None,
     user_roles: Optional[List[str]] = None,
+    source_items: Optional[List[Dict[str, Any]]] = None,
 ) -> CommitResult:
     """
     Commit analysis results to the database (idempotent) with policy enforcement.
     
     This function:
+    0. Guards against external content persistence (CRITICAL)
     1. Applies role-based policy caps and tolerances
     2. Upserts concept entities with stable slugified names
     3. Upserts frame entities (as artifact type) with stable names
@@ -333,9 +336,13 @@ def commit_analysis(
         file_id: Optional file ID for stable frame naming
         chunk_idx: Optional chunk index for stable frame naming
         user_roles: List of user roles for policy enforcement
+        source_items: Optional list of source items to check for external content
     
     Returns:
         CommitResult with entity IDs, edge IDs, and job counts
+    
+    Raises:
+        ExternalPersistenceError: If external content is detected
     """
     result = CommitResult(
         concept_entity_ids=[],
@@ -345,6 +352,15 @@ def commit_analysis(
         jobs_enqueued=0,
         errors=[],
     )
+    
+    # CRITICAL: Guard against external content persistence
+    # Check source items for external provenance before any database writes
+    if source_items:
+        forbid_external_persistence(
+            source_items,
+            item_type="source_item",
+            raise_on_external=True
+        )
     
     # Get and enforce policy
     policy_manager = get_ingest_policy_manager()

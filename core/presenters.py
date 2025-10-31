@@ -282,3 +282,161 @@ def redact_search_results(results: List[Dict[str, Any]], roles: List[str]) -> Li
         List of redacted results
     """
     return [redact_message(result, roles) for result in results]
+
+
+# ============================================================================
+# External Evidence Formatting
+# ============================================================================
+
+def format_external_evidence(
+    external_items: List[Dict[str, Any]],
+    config_loader: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    Format external evidence items for display in chat responses.
+    
+    Renders external sources distinctly from internal sources with:
+    - Source label (e.g., [Wikipedia], [arXiv])
+    - Normalized host domain
+    - Provenance (URL, fetch timestamp)
+    - Truncated and redacted snippets
+    
+    Args:
+        external_items: List of external evidence dictionaries with keys:
+            - source_id: Source identifier
+            - url: Source URL
+            - snippet: Text content
+            - fetched_at: Fetch timestamp (optional)
+        config_loader: ConfigLoader instance (if None, will create one)
+        
+    Returns:
+        Dictionary with formatted external sources:
+        {
+            "heading": "External sources",
+            "items": [
+                {
+                    "label": "Wikipedia",
+                    "host": "en.wikipedia.org",
+                    "snippet": "Truncated and redacted text...",
+                    "provenance": {
+                        "url": "https://...",
+                        "fetched_at": "2025-10-30T12:00:00Z"
+                    }
+                }
+            ]
+        }
+    """
+    from core.config_loader import get_loader
+    from urllib.parse import urlparse
+    import re
+    
+    if not external_items:
+        return {"heading": "External sources", "items": []}
+    
+    # Get config
+    if config_loader is None:
+        config_loader = get_loader()
+    
+    policy = config_loader.get_compare_policy()
+    redact_patterns = policy.redact_patterns
+    
+    # Get source configurations for labels and max chars
+    whitelist = config_loader.get_whitelist(enabled_only=False)
+    source_configs = {s.source_id: s for s in whitelist}
+    
+    formatted_items = []
+    
+    for item in external_items:
+        source_id = item.get("source_id", "unknown")
+        url = item.get("url", "")
+        snippet = item.get("snippet", "")
+        fetched_at = item.get("fetched_at", "")
+        
+        # Get source config
+        source_config = source_configs.get(source_id)
+        
+        # Extract label
+        if source_config:
+            label = source_config.label
+            max_chars = source_config.max_snippet_chars
+        else:
+            label = source_id.replace("_", " ").title()
+            max_chars = 400  # Default
+        
+        # Extract normalized host from URL
+        try:
+            parsed = urlparse(url)
+            host = parsed.netloc or parsed.hostname or "unknown"
+        except Exception:
+            host = "unknown"
+        
+        # Truncate snippet
+        if len(snippet) > max_chars:
+            # Truncate at word boundary
+            truncated = snippet[:max_chars].rsplit(' ', 1)[0]
+            if truncated:
+                snippet = truncated + "..."
+            else:
+                snippet = snippet[:max_chars] + "..."
+        
+        # Apply redaction patterns (with greedy matching)
+        for pattern in redact_patterns:
+            try:
+                # Make patterns more comprehensive by matching everything after the keyword
+                # until next space or end of line
+                if "Authorization" in pattern:
+                    # Match "Authorization: <anything until space or newline>"
+                    pattern = r"Authorization:\s+\S+(\s+\S+)?"
+                if "Bearer" in pattern:
+                    # Match "Bearer <token>"
+                    pattern = r"Bearer\s+[A-Za-z0-9\-._~+/=]+"
+                
+                snippet = re.sub(pattern, "[REDACTED]", snippet, flags=re.IGNORECASE)
+            except re.error:
+                # Skip invalid patterns
+                pass
+        
+        # Build formatted item
+        formatted_item = {
+            "label": label,
+            "host": host,
+            "snippet": snippet.strip(),
+            "provenance": {
+                "url": url,
+                "fetched_at": fetched_at or None
+            }
+        }
+        
+        formatted_items.append(formatted_item)
+    
+    return {
+        "heading": "External sources",
+        "items": formatted_items
+    }
+
+
+def format_chat_response_with_externals(
+    response: Dict[str, Any],
+    external_items: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, Any]:
+    """
+    Format chat response to include external sources section.
+    
+    Args:
+        response: Base chat response dictionary
+        external_items: Optional list of external evidence items
+        
+    Returns:
+        Updated response with external_sources field
+    """
+    if not external_items:
+        response["external_sources"] = None
+        return response
+    
+    # Format external evidence
+    external_block = format_external_evidence(external_items)
+    
+    # Add to response
+    response["external_sources"] = external_block
+    
+    return response

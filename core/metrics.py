@@ -471,12 +471,14 @@ __all__ = [
     'increment_counter', 'set_gauge', 'observe_histogram', 'get_counter', 
     'get_gauge', 'get_histogram_stats', 'get_all_metrics', 'reset_metrics',
     'OrchestratorMetrics', 'LedgerMetrics', 'RetrievalMetrics', 'IngestMetrics',
-    'ImplicateRefreshMetrics', 'time_operation', 'record_api_call', 'record_error', 
-    'record_feature_flag_usage',
+    'ImplicateRefreshMetrics', 'ExternalCompareMetrics', 'time_operation', 
+    'record_api_call', 'record_error', 'record_feature_flag_usage',
     # RBAC metrics
     'record_rbac_resolution', 'record_rbac_check', 'record_role_distribution',
     'record_retrieval_filtered', 'audit_rbac_denial', 'get_rbac_metrics',
-    'reset_rbac_metrics'
+    'reset_rbac_metrics',
+    # External comparison audit
+    'audit_external_compare_denial', 'audit_external_compare_timeout'
 ]
 
 # ============================================================================
@@ -628,3 +630,211 @@ def reset_rbac_metrics():
     # but we can reset all metrics
     # In production, you might want to keep this or make it more selective
     _metrics.reset_metrics()
+
+
+# ============================================================================
+# External Comparison Metrics and Auditing
+# ============================================================================
+
+class ExternalCompareMetrics:
+    """Specific metrics for external source comparison."""
+    
+    @staticmethod
+    def record_request(allowed: bool, user_roles: List[str] = None):
+        """
+        Record an external compare request.
+        
+        Args:
+            allowed: Whether the request was allowed
+            user_roles: User's roles
+        """
+        increment_counter("external.compare.requests")
+        if allowed:
+            increment_counter("external.compare.allowed")
+        else:
+            increment_counter("external.compare.denied")
+            if user_roles:
+                for role in user_roles:
+                    increment_counter("external.compare.denied.by_role", labels={"role": role})
+    
+    @staticmethod
+    def record_comparison(
+        duration_ms: float,
+        internal_count: int,
+        external_count: int,
+        used_external: bool,
+        success: bool = True
+    ):
+        """
+        Record a comparison operation.
+        
+        Args:
+            duration_ms: Duration in milliseconds
+            internal_count: Number of internal sources
+            external_count: Number of external sources
+            used_external: Whether external sources were actually used
+            success: Whether the comparison succeeded
+        """
+        observe_histogram("external.compare.ms", duration_ms, labels={"success": str(success).lower()})
+        observe_histogram("external.compare.internal_count", internal_count)
+        observe_histogram("external.compare.external_count", external_count)
+        
+        if used_external:
+            increment_counter("external.compare.with_externals")
+        else:
+            increment_counter("external.compare.internal_only")
+    
+    @staticmethod
+    def record_timeout(url: str = None):
+        """
+        Record a timeout during external fetch.
+        
+        Args:
+            url: URL that timed out (optional)
+        """
+        increment_counter("external.compare.timeouts")
+        if url:
+            increment_counter("external.compare.timeouts.by_domain", labels={"domain": _extract_domain(url)})
+    
+    @staticmethod
+    def record_fallback(reason: str = "unknown"):
+        """
+        Record a fallback to internal-only.
+        
+        Args:
+            reason: Reason for fallback (timeout, error, etc.)
+        """
+        increment_counter("external.compare.fallbacks", labels={"reason": reason})
+    
+    @staticmethod
+    def record_external_fetch(
+        url: str,
+        success: bool,
+        duration_ms: float,
+        error_type: str = None
+    ):
+        """
+        Record an external fetch attempt.
+        
+        Args:
+            url: URL being fetched
+            success: Whether fetch succeeded
+            duration_ms: Fetch duration
+            error_type: Type of error if failed
+        """
+        domain = _extract_domain(url)
+        
+        if success:
+            increment_counter("external.compare.fetches.success", labels={"domain": domain})
+            observe_histogram("external.compare.fetch.ms", duration_ms, labels={"success": "true", "domain": domain})
+        else:
+            increment_counter("external.compare.fetches.failed", labels={"domain": domain})
+            if error_type:
+                increment_counter("external.compare.fetch.errors", labels={"error_type": error_type, "domain": domain})
+    
+    @staticmethod
+    def set_policy_max_sources(max_sources: int):
+        """
+        Set the configured maximum external sources.
+        
+        Args:
+            max_sources: Maximum number of external sources allowed
+        """
+        set_gauge("external.policy.max_sources", float(max_sources))
+    
+    @staticmethod
+    def set_policy_timeout(timeout_ms: int):
+        """
+        Set the configured timeout for external requests.
+        
+        Args:
+            timeout_ms: Timeout in milliseconds
+        """
+        set_gauge("external.policy.timeout_ms", float(timeout_ms))
+
+
+def _extract_domain(url: str) -> str:
+    """Extract domain from URL for labeling."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        return parsed.netloc or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def audit_external_compare_denial(
+    user_id: Optional[str],
+    roles: List[str],
+    reason: str = "insufficient_permissions",
+    metadata: Optional[Dict[str, Any]] = None
+):
+    """
+    Emit audit log entry for external compare denial.
+    
+    Args:
+        user_id: User ID who was denied
+        roles: User's roles
+        reason: Reason for denial
+        metadata: Additional context
+    """
+    audit_entry = {
+        "event": "external_compare_denial",
+        "user_id": user_id or "anonymous",
+        "roles": roles,
+        "reason": reason,
+        "timestamp": time.time(),
+    }
+    
+    if metadata:
+        audit_entry["metadata"] = metadata
+    
+    # Log to audit logger
+    audit_logger.warning(
+        f"EXTERNAL_COMPARE_DENIAL user={user_id or 'anonymous'} "
+        f"roles={','.join(roles)} reason={reason}",
+        extra={"audit": audit_entry}
+    )
+    
+    # Increment audit counter
+    increment_counter("external.compare.audit.denials", labels={"reason": reason})
+
+
+def audit_external_compare_timeout(
+    url: str,
+    timeout_ms: int,
+    user_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None
+):
+    """
+    Emit audit log entry for external compare timeout.
+    
+    Args:
+        url: URL that timed out
+        timeout_ms: Timeout threshold
+        user_id: User ID making the request
+        metadata: Additional context
+    """
+    domain = _extract_domain(url)
+    
+    audit_entry = {
+        "event": "external_compare_timeout",
+        "url": url,
+        "domain": domain,
+        "timeout_ms": timeout_ms,
+        "user_id": user_id or "anonymous",
+        "timestamp": time.time(),
+    }
+    
+    if metadata:
+        audit_entry["metadata"] = metadata
+    
+    # Log to audit logger
+    audit_logger.warning(
+        f"EXTERNAL_COMPARE_TIMEOUT url={url} domain={domain} "
+        f"timeout_ms={timeout_ms} user={user_id or 'anonymous'}",
+        extra={"audit": audit_entry}
+    )
+    
+    # Increment audit counter
+    increment_counter("external.compare.audit.timeouts", labels={"domain": domain})

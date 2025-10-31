@@ -81,14 +81,14 @@ CAPABILITY_TEST_CASES = [
     (ROLE_ANALYTICS, CAP_MANAGE_ROLES, False),
     (ROLE_ANALYTICS, CAP_VIEW_DEBUG, False),
     
-    # OPS role - read + debug
+    # OPS role - read + debug + role management
     (ROLE_OPS, CAP_READ_PUBLIC, True),
     (ROLE_OPS, CAP_READ_LEDGER_FULL, True),
     (ROLE_OPS, CAP_PROPOSE_HYPOTHESIS, False),
     (ROLE_OPS, CAP_PROPOSE_AURA, False),
     (ROLE_OPS, CAP_WRITE_GRAPH, False),
     (ROLE_OPS, CAP_WRITE_CONTRADICTIONS, False),
-    (ROLE_OPS, CAP_MANAGE_ROLES, False),
+    (ROLE_OPS, CAP_MANAGE_ROLES, True),  # NEW: Ops can manage roles
     (ROLE_OPS, CAP_VIEW_DEBUG, True),
 ]
 
@@ -176,12 +176,13 @@ class TestRoleCapabilitySets:
         }
     
     def test_ops_capabilities(self):
-        """Ops role should have read + debug capabilities."""
+        """Ops role should have read + debug + role management capabilities."""
         caps = get_role_capabilities(ROLE_OPS)
         assert caps == {
             CAP_READ_PUBLIC,
             CAP_READ_LEDGER_FULL,
             CAP_VIEW_DEBUG,
+            CAP_MANAGE_ROLES,  # NEW: Ops can manage roles
         }
     
     def test_unknown_role_capabilities(self):
@@ -300,9 +301,15 @@ class TestCapabilityDenials:
         assert not has_capability(ROLE_OPS, CAP_PROPOSE_HYPOTHESIS)
         assert not has_capability(ROLE_OPS, CAP_PROPOSE_AURA)
     
-    def test_no_role_has_manage_roles(self):
-        """Currently, no role should have MANAGE_ROLES capability."""
-        for role in ALL_ROLES:
+    def test_only_ops_has_manage_roles(self):
+        """Only ops role should have MANAGE_ROLES capability."""
+        # Ops should have it
+        assert has_capability(ROLE_OPS, CAP_MANAGE_ROLES), (
+            "Ops role should have MANAGE_ROLES capability"
+        )
+        
+        # No other role should have it
+        for role in [ROLE_GENERAL, ROLE_PRO, ROLE_SCHOLARS, ROLE_ANALYTICS]:
             assert not has_capability(role, CAP_MANAGE_ROLES), (
                 f"Role '{role}' should not have MANAGE_ROLES capability"
             )
@@ -405,7 +412,7 @@ class TestCaseSensitivity:
         ("Pro", 4),
         ("SCHOLARS", 4),
         ("Analytics", 6),
-        ("OPS", 3),
+        ("OPS", 4),
     ])
     def test_get_capabilities_case_insensitive(self, role, expected_caps):
         """get_role_capabilities should be case-insensitive."""

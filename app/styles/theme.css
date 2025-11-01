@@ -1,0 +1,599 @@
+/**
+ * Theme and Accessibility Styles
+ * 
+ * Global CSS custom properties for theming, accessibility, and responsive design.
+ * Ensures WCAG 2.1 AA compliance for color contrast and motion preferences.
+ */
+
+/* ============================================================================
+   CSS Custom Properties (Variables)
+   ============================================================================ */
+
+:root {
+  /* Colors - Light Theme */
+  --color-primary: #007bff;
+  --color-primary-hover: #0056b3;
+  --color-primary-active: #004085;
+  
+  --color-secondary: #6c757d;
+  --color-secondary-hover: #545b62;
+  
+  --color-success: #28a745;
+  --color-success-hover: #218838;
+  
+  --color-info: #17a2b8;
+  --color-info-hover: #138496;
+  
+  --color-warning: #ffc107;
+  --color-warning-hover: #e0a800;
+  
+  --color-danger: #dc3545;
+  --color-danger-hover: #c82333;
+  
+  /* Backgrounds */
+  --color-background: #ffffff;
+  --color-background-secondary: #f8f9fa;
+  --color-background-tertiary: #e9ecef;
+  
+  /* Text Colors */
+  --color-text-primary: #212529;
+  --color-text-secondary: #6c757d;
+  --color-text-muted: #adb5bd;
+  --color-text-inverted: #ffffff;
+  
+  /* Borders */
+  --color-border: #dee2e6;
+  --color-border-light: #e9ecef;
+  --color-border-dark: #adb5bd;
+  
+  /* Interactive Elements */
+  --color-link: #007bff;
+  --color-link-hover: #0056b3;
+  --color-link-visited: #6610f2;
+  
+  /* Focus Indicators (WCAG 2.1 AA compliant) */
+  --color-focus: #007bff;
+  --focus-ring-width: 3px;
+  --focus-ring-offset: 2px;
+  --focus-ring-style: solid;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+  
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  
+  /* Typography */
+  --font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-mono: 'Courier New', Courier, monospace;
+  
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 30px;
+  
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+  
+  /* Border Radius */
+  --border-radius-sm: 3px;
+  --border-radius-md: 6px;
+  --border-radius-lg: 8px;
+  --border-radius-xl: 12px;
+  --border-radius-full: 9999px;
+  
+  /* Transitions (Default - can be overridden by prefers-reduced-motion) */
+  --transition-fast: 150ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+  
+  /* Animation Durations */
+  --animation-duration-fast: 150ms;
+  --animation-duration-base: 300ms;
+  --animation-duration-slow: 500ms;
+  
+  /* Z-Index Scale */
+  --z-index-dropdown: 1000;
+  --z-index-sticky: 1020;
+  --z-index-fixed: 1030;
+  --z-index-modal-backdrop: 1040;
+  --z-index-modal: 1050;
+  --z-index-popover: 1060;
+  --z-index-tooltip: 1070;
+  
+  /* Component-Specific Colors */
+  --badge-high-severity: #dc3545;
+  --badge-medium-severity: #ffc107;
+  --badge-low-severity: #17a2b8;
+  
+  --evidence-anchor-bg: #fff3cd;
+  --evidence-anchor-hover: #ffe69c;
+  --evidence-highlight: #ffc107;
+  
+  /* Accessibility */
+  --min-touch-target: 44px; /* WCAG 2.1 AA minimum */
+  --focus-visible-outline: var(--focus-ring-width) var(--focus-ring-style) var(--color-focus);
+}
+
+/* ============================================================================
+   Dark Theme
+   ============================================================================ */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Colors - Dark Theme */
+    --color-primary: #4da6ff;
+    --color-primary-hover: #3d8fdb;
+    --color-primary-active: #2d7bc7;
+    
+    --color-secondary: #adb5bd;
+    --color-secondary-hover: #ced4da;
+    
+    --color-success: #5cb85c;
+    --color-success-hover: #4cae4c;
+    
+    --color-info: #5bc0de;
+    --color-info-hover: #46b8da;
+    
+    --color-warning: #f0ad4e;
+    --color-warning-hover: #ec971f;
+    
+    --color-danger: #d9534f;
+    --color-danger-hover: #c9302c;
+    
+    /* Backgrounds */
+    --color-background: #1a1a1a;
+    --color-background-secondary: #242424;
+    --color-background-tertiary: #2e2e2e;
+    
+    /* Text Colors */
+    --color-text-primary: #e0e0e0;
+    --color-text-secondary: #b0b0b0;
+    --color-text-muted: #808080;
+    --color-text-inverted: #1a1a1a;
+    
+    /* Borders */
+    --color-border: #3a3a3a;
+    --color-border-light: #2e2e2e;
+    --color-border-dark: #4a4a4a;
+    
+    /* Interactive Elements */
+    --color-link: #4da6ff;
+    --color-link-hover: #3d8fdb;
+    --color-link-visited: #b794f4;
+    
+    /* Focus Indicators */
+    --color-focus: #4da6ff;
+    
+    /* Shadows (lighter for dark theme) */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
+    
+    /* Evidence (dark variants) */
+    --evidence-anchor-bg: #3a3a00;
+    --evidence-anchor-hover: #4a4a00;
+    --evidence-highlight: #5a5a00;
+  }
+}
+
+/* ============================================================================
+   High Contrast Mode
+   ============================================================================ */
+
+@media (prefers-contrast: high) {
+  :root {
+    /* Increase contrast for better visibility */
+    --color-text-primary: #000000;
+    --color-background: #ffffff;
+    --color-border: #000000;
+    --focus-ring-width: 4px; /* Thicker focus rings */
+    
+    /* Ensure buttons have clear borders */
+    button, .button {
+      border: 2px solid currentColor;
+    }
+  }
+  
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-text-primary: #ffffff;
+      --color-background: #000000;
+      --color-border: #ffffff;
+    }
+  }
+}
+
+/* ============================================================================
+   Reduced Motion
+   ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    /* Disable all transitions */
+    --transition-fast: 0ms;
+    --transition-base: 0ms;
+    --transition-slow: 0ms;
+    
+    /* Disable animations */
+    --animation-duration-fast: 0ms;
+    --animation-duration-base: 0ms;
+    --animation-duration-slow: 0ms;
+  }
+  
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================================
+   Base Styles
+   ============================================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-normal);
+  font-family: var(--font-family-base);
+  color: var(--color-text-primary);
+  background-color: var(--color-background);
+  
+  /* Smooth scrolling (disabled in reduced motion) */
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================================
+   Focus Indicators (WCAG 2.1 AA Compliant)
+   ============================================================================ */
+
+/* Remove default outline and add custom focus styles */
+*:focus {
+  outline: none;
+}
+
+/* Visible focus indicator for keyboard navigation */
+*:focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--border-radius-sm);
+}
+
+/* Specific focus styles for interactive elements */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ============================================================================
+   Skip Links (Accessibility)
+   ============================================================================ */
+
+.skip-link {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  z-index: 999999;
+  padding: var(--spacing-md);
+  background-color: var(--color-primary);
+  color: var(--color-text-inverted);
+  text-decoration: none;
+  border-radius: var(--border-radius-md);
+}
+
+.skip-link:focus {
+  top: var(--spacing-md);
+  left: var(--spacing-md);
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ============================================================================
+   Screen Reader Only
+   ============================================================================ */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.sr-only-focusable:focus,
+.sr-only-focusable:active {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* ============================================================================
+   Typography
+   ============================================================================ */
+
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 0;
+  margin-bottom: var(--spacing-md);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  color: var(--color-text-primary);
+}
+
+h1 { font-size: var(--font-size-3xl); }
+h2 { font-size: var(--font-size-2xl); }
+h3 { font-size: var(--font-size-xl); }
+h4 { font-size: var(--font-size-lg); }
+h5 { font-size: var(--font-size-base); }
+h6 { font-size: var(--font-size-sm); }
+
+p {
+  margin-top: 0;
+  margin-bottom: var(--spacing-md);
+}
+
+a {
+  color: var(--color-link);
+  text-decoration: underline;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--color-link-hover);
+}
+
+a:visited {
+  color: var(--color-link-visited);
+}
+
+/* ============================================================================
+   Buttons
+   ============================================================================ */
+
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--min-touch-target);
+  min-width: var(--min-touch-target);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-md);
+  background-color: var(--color-primary);
+  color: var(--color-text-inverted);
+  transition: background-color var(--transition-fast), 
+              border-color var(--transition-fast),
+              transform var(--transition-fast);
+}
+
+button:hover:not(:disabled),
+.button:hover:not(:disabled) {
+  background-color: var(--color-primary-hover);
+  transform: translateY(-1px);
+}
+
+button:active:not(:disabled),
+.button:active:not(:disabled) {
+  background-color: var(--color-primary-active);
+  transform: translateY(0);
+}
+
+button:disabled,
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ============================================================================
+   Form Controls
+   ============================================================================ */
+
+input,
+select,
+textarea {
+  display: block;
+  width: 100%;
+  min-height: var(--min-touch-target);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  transition: border-color var(--transition-fast),
+              box-shadow var(--transition-fast);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* ============================================================================
+   ARIA Live Regions
+   ============================================================================ */
+
+[aria-live="polite"],
+[aria-live="assertive"] {
+  position: relative;
+}
+
+/* Ensure live regions are visible to screen readers */
+.live-region {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* Toast notifications should be visible and have aria-live */
+.toast-container {
+  position: fixed;
+  top: var(--spacing-lg);
+  right: var(--spacing-lg);
+  z-index: var(--z-index-tooltip);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  min-width: 250px;
+  max-width: 400px;
+  padding: var(--spacing-md);
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: toast-slide-in var(--animation-duration-base) ease-out;
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ============================================================================
+   Tooltips
+   ============================================================================ */
+
+[role="tooltip"] {
+  position: absolute;
+  z-index: var(--z-index-tooltip);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-inverted);
+  background-color: var(--color-text-primary);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+
+/* ============================================================================
+   Color Contrast Utilities
+   ============================================================================ */
+
+/* Ensure sufficient contrast for text on colored backgrounds */
+.bg-primary { background-color: var(--color-primary); color: var(--color-text-inverted); }
+.bg-secondary { background-color: var(--color-secondary); color: var(--color-text-inverted); }
+.bg-success { background-color: var(--color-success); color: var(--color-text-inverted); }
+.bg-info { background-color: var(--color-info); color: var(--color-text-inverted); }
+.bg-warning { background-color: var(--color-warning); color: var(--color-text-primary); }
+.bg-danger { background-color: var(--color-danger); color: var(--color-text-inverted); }
+
+/* ============================================================================
+   Responsive Design
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  :root {
+    --font-size-base: 15px;
+    --spacing-md: 12px;
+    --spacing-lg: 20px;
+  }
+  
+  .toast-container {
+    top: var(--spacing-sm);
+    right: var(--spacing-sm);
+    left: var(--spacing-sm);
+  }
+  
+  .toast {
+    max-width: 100%;
+  }
+}
+
+/* ============================================================================
+   Print Styles
+   ============================================================================ */
+
+@media print {
+  * {
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  
+  a[href]::after {
+    content: " (" attr(href) ")";
+  }
+  
+  /* Hide non-essential elements */
+  button,
+  .toast,
+  [role="tooltip"] {
+    display: none !important;
+  }
+}

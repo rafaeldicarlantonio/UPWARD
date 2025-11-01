@@ -1,0 +1,16 @@
+[
+  {
+    "id": "stub_001",
+    "prompt": "What is 2+2?",
+    "category": "smoke",
+    "must_include": ["4", "four"],
+    "max_latency_ms": 500
+  },
+  {
+    "id": "stub_002",
+    "prompt": "What is the capital of France?",
+    "category": "smoke",
+    "must_include": ["Paris"],
+    "max_latency_ms": 500
+  }
+]

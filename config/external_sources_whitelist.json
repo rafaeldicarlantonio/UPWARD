@@ -1,0 +1,42 @@
+[
+  {
+    "source_id": "wikipedia",
+    "label": "Wikipedia",
+    "priority": 10,
+    "url_pattern": "https://.*\\.wikipedia\\.org/.*",
+    "max_snippet_chars": 480,
+    "enabled": true
+  },
+  {
+    "source_id": "arxiv",
+    "label": "arXiv",
+    "priority": 9,
+    "url_pattern": "https://arxiv\\.org/.*",
+    "max_snippet_chars": 640,
+    "enabled": true
+  },
+  {
+    "source_id": "pubmed",
+    "label": "PubMed",
+    "priority": 8,
+    "url_pattern": "https://pubmed\\.ncbi\\.nlm\\.nih\\.gov/.*",
+    "max_snippet_chars": 500,
+    "enabled": true
+  },
+  {
+    "source_id": "scholar",
+    "label": "Google Scholar",
+    "priority": 7,
+    "url_pattern": "https://scholar\\.google\\.com/.*",
+    "max_snippet_chars": 400,
+    "enabled": false
+  },
+  {
+    "source_id": "semantic_scholar",
+    "label": "Semantic Scholar",
+    "priority": 6,
+    "url_pattern": "https://www\\.semanticscholar\\.org/.*",
+    "max_snippet_chars": 450,
+    "enabled": true
+  }
+]

@@ -1,385 +1,262 @@
-# core/factare/compare_external.py — External compare adapter with whitelist and rate limits
+"""
+External source comparison with timeout handling and graceful fallback.
+
+Fetches content from external sources with:
+- Timeout enforcement per request
+- Continue-on-failure for remaining sources
+- Graceful fallback to internal-only on total failure
+"""
 
 import asyncio
+import logging
 import time
-from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Set, Tuple
-from datetime import datetime, timedelta
-from urllib.parse import urlparse
-import re
+from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass, field
 
-from core.factare.compare_internal import InternalComparator, RetrievalCandidate, ComparisonResult
-from core.factare.summary import CompareSummary
-from core.policy import is_source_whitelisted, get_external_timeout_ms
-from adapters.web_external import WebExternalAdapter
+logger = logging.getLogger(__name__)
+
 
 @dataclass
-class ExternalSnippet:
-    """External snippet with provenance information."""
-    url: str
-    snippet: str
-    source: str
-    score: float
-    fetched_at: datetime
-    domain: str
-    redacted: bool = False
-    metadata: Optional[Dict[str, Any]] = None
+class ExternalResult:
+    """Result from external source comparison."""
+    success: bool
+    used_external: bool
+    external_items: List[Dict[str, Any]] = field(default_factory=list)
+    fetch_time_ms: float = 0.0
+    fetch_count: int = 0
+    timeout_count: int = 0
+    error_count: int = 0
+    errors: List[str] = field(default_factory=list)
 
-@dataclass
-class RateLimitInfo:
-    """Rate limiting information for a domain."""
-    domain: str
-    last_request: Optional[datetime] = None
-    request_count: int = 0
-    window_start: Optional[datetime] = None
 
-@dataclass
-class ExternalAdapterConfig:
-    """Configuration for external adapter."""
-    max_external_snippets: int = 5
-    max_snippet_length: int = 200
-    rate_limit_per_domain: int = 3  # requests per minute
-    rate_limit_window_minutes: int = 1
-    timeout_seconds: int = 2
-    enable_redaction: bool = True
-    redaction_patterns: List[str] = None
-
-    def __post_init__(self):
-        if self.redaction_patterns is None:
-            self.redaction_patterns = [
-                r'\b\d{4}-\d{2}-\d{2}\b',  # Dates
-                r'\b\d{3}-\d{3}-\d{4}\b',  # Phone numbers
-                r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email
-                r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',  # IP addresses
-                r'\b[A-Z]{2,}\b',  # Acronyms (potential PII)
-            ]
-
-class ExternalCompareAdapter:
-    """External compare adapter with whitelist, rate limits, and redaction."""
+class ExternalComparer:
+    """
+    Compare internal results with external sources.
     
-    def __init__(self, config: Optional[ExternalAdapterConfig] = None, web_adapter=None):
-        self.config = config or ExternalAdapterConfig()
-        self.internal_comparator = InternalComparator()
-        self.web_adapter = web_adapter or WebExternalAdapter()
-        self.rate_limits: Dict[str, RateLimitInfo] = {}
-        self.whitelist_cache: Set[str] = set()
-        self._lock = asyncio.Lock()
+    Handles timeouts gracefully and provides internal-only fallback.
+    """
     
-    async def compare_with_external(
-        self, 
-        query: str, 
-        internal_candidates: List[RetrievalCandidate],
-        external_urls: List[str],
-        feature_flags: Dict[str, bool]
-    ) -> ComparisonResult:
+    def __init__(
+        self,
+        adapter,
+        timeout_ms_per_request: int = 2000,
+        max_sources: int = 5,
+        continue_on_timeout: bool = True
+    ):
         """
-        Compare with both internal and external sources.
+        Initialize external comparer.
         
         Args:
-            query: The query being analyzed
-            internal_candidates: Internal retrieval candidates
-            external_urls: URLs to fetch external content from
-            feature_flags: Feature flags including factare.allow_external
+            adapter: WebExternalAdapter instance
+            timeout_ms_per_request: Timeout per request in milliseconds
+            max_sources: Maximum number of external sources to fetch
+            continue_on_timeout: If True, continue with other sources on timeout
+        """
+        self.adapter = adapter
+        self.timeout_ms_per_request = timeout_ms_per_request
+        self.timeout_seconds = timeout_ms_per_request / 1000.0
+        self.max_sources = max_sources
+        self.continue_on_timeout = continue_on_timeout
+    
+    async def fetch_external_sources(
+        self,
+        query: str,
+        urls: List[str],
+        internal_results: Optional[List[Dict[str, Any]]] = None
+    ) -> ExternalResult:
+        """
+        Fetch content from external sources with timeout handling.
+        
+        Args:
+            query: Search query
+            urls: List of URLs to fetch
+            internal_results: Internal search results (for comparison)
             
         Returns:
-            ComparisonResult with both internal and external evidence
+            ExternalResult with fetched items and metadata
         """
-        # Check if external sources are allowed
-        if not feature_flags.get('factare.allow_external', False):
-            return self.internal_comparator.compare(query, internal_candidates)
+        start_time = time.time()
         
-        # Filter URLs by whitelist
-        whitelisted_urls = await self._filter_whitelisted_urls(external_urls)
+        result = ExternalResult(
+            success=False,
+            used_external=False
+        )
         
-        if not whitelisted_urls:
-            # No whitelisted URLs, use internal only
-            return self.internal_comparator.compare(query, internal_candidates)
+        if not urls:
+            logger.info("No external URLs provided, using internal-only")
+            return result
         
-        # Fetch external snippets with rate limiting
-        external_snippets = await self._fetch_external_snippets(whitelisted_urls)
+        # Limit to max sources
+        urls_to_fetch = urls[:self.max_sources]
+        logger.info(f"Fetching from {len(urls_to_fetch)} external sources (max={self.max_sources})")
         
-        # Combine internal and external candidates
-        all_candidates = internal_candidates + external_snippets
+        # Fetch each URL with individual timeout
+        external_items = []
         
-        # Run internal comparison with combined candidates
-        return self.internal_comparator.compare(query, all_candidates)
-    
-    async def _filter_whitelisted_urls(self, urls: List[str]) -> List[str]:
-        """Filter URLs to only include whitelisted ones."""
-        whitelisted = []
-        
-        for url in urls:
-            if not url:
-                continue
-                
-            # Check cache first
-            if url in self.whitelist_cache:
-                whitelisted.append(url)
-                continue
-            
-            # Check whitelist
-            if is_source_whitelisted(url):
-                whitelisted.append(url)
-                self.whitelist_cache.add(url)
-        
-        return whitelisted
-    
-    async def _fetch_external_snippets(self, urls: List[str]) -> List[RetrievalCandidate]:
-        """Fetch external snippets with rate limiting and timeout."""
-        snippets = []
-        
-        # Limit number of external snippets
-        limited_urls = urls[:self.config.max_external_snippets]
-        
-        # Group URLs by domain for rate limiting
-        domain_groups = self._group_urls_by_domain(limited_urls)
-        
-        for domain, domain_urls in domain_groups.items():
-            # Check rate limit for this domain
-            if not await self._check_rate_limit(domain):
-                continue
-            
-            # Fetch snippets for this domain
-            domain_snippets = await self._fetch_domain_snippets(domain, domain_urls)
-            snippets.extend(domain_snippets)
-        
-        return snippets
-    
-    def _group_urls_by_domain(self, urls: List[str]) -> Dict[str, List[str]]:
-        """Group URLs by domain for rate limiting."""
-        domain_groups = {}
-        
-        for url in urls:
+        for url in urls_to_fetch:
             try:
-                parsed = urlparse(url)
-                domain = parsed.netloc.lower()
-                if domain:
-                    if domain not in domain_groups:
-                        domain_groups[domain] = []
-                    domain_groups[domain].append(url)
-            except Exception:
-                # Skip invalid URLs
-                continue
-        
-        return domain_groups
-    
-    async def _check_rate_limit(self, domain: str) -> bool:
-        """Check if domain is within rate limits."""
-        async with self._lock:
-            now = datetime.now()
-            
-            if domain not in self.rate_limits:
-                self.rate_limits[domain] = RateLimitInfo(domain=domain)
-            
-            rate_info = self.rate_limits[domain]
-            
-            # Reset window if needed
-            if (rate_info.window_start is None or 
-                now - rate_info.window_start > timedelta(minutes=self.config.rate_limit_window_minutes)):
-                rate_info.window_start = now
-                rate_info.request_count = 0
-            
-            # Check if we're within limits
-            if rate_info.request_count >= self.config.rate_limit_per_domain:
-                return False
-            
-            # Update rate limit info
-            rate_info.request_count += 1
-            rate_info.last_request = now
-            
-            return True
-    
-    async def _fetch_domain_snippets(self, domain: str, urls: List[str]) -> List[RetrievalCandidate]:
-        """Fetch snippets for a specific domain."""
-        snippets = []
-        
-        for url in urls:
-            try:
-                # Fetch content with timeout
+                # Fetch with timeout
                 content = await asyncio.wait_for(
-                    self.web_adapter.fetch_content(url),
-                    timeout=self.config.timeout_seconds
+                    self.adapter.fetch_content(url),
+                    timeout=self.timeout_seconds
                 )
                 
                 if content:
-                    # Redact content
-                    redacted_content = self._redact_content(content)
+                    # Create external item
+                    external_item = {
+                        'url': url,
+                        'snippet': content[:500] if len(content) > 500 else content,
+                        'fetched_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                        'provenance': {
+                            'url': url,
+                            'fetched_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                        },
+                        'external': True,
+                        'metadata': {
+                            'external': True,
+                            'url': url
+                        }
+                    }
                     
-                    # Create snippet
-                    snippet = self._create_snippet(redacted_content, url)
+                    # Try to get source info from adapter
+                    if hasattr(self.adapter, 'url_matcher') and self.adapter.url_matcher:
+                        match = self.adapter.url_matcher.match(url)
+                        if match:
+                            external_item['source_id'] = match.source_id
+                            external_item['label'] = match.label
                     
-                    if snippet:
-                        # Create retrieval candidate
-                        candidate = RetrievalCandidate(
-                            id=f"external_{hash(url)}",
-                            content=snippet,
-                            source=f"External: {domain}",
-                            score=0.7,  # Default score for external content
-                            url=url,
-                            timestamp=datetime.now(),
-                            metadata={
-                                'domain': domain,
-                                'fetched_at': datetime.now().isoformat(),
-                                'redacted': len(snippet) < len(redacted_content),
-                                'original_length': len(content)
-                            }
-                        )
-                        snippets.append(candidate)
-                
+                    external_items.append(external_item)
+                    logger.info(f"Successfully fetched external content from {url}")
+                else:
+                    logger.warning(f"No content returned from {url}")
+                    result.error_count += 1
+                    result.errors.append(f"No content from {url}")
+                    
+                    if not self.continue_on_timeout:
+                        break
+                        
             except asyncio.TimeoutError:
-                # Skip on timeout
-                continue
-            except Exception:
-                # Skip on any other error
-                continue
+                logger.warning(f"Timeout fetching {url} (limit: {self.timeout_ms_per_request}ms)")
+                result.timeout_count += 1
+                result.errors.append(f"Timeout: {url}")
+                
+                if not self.continue_on_timeout:
+                    break
+                    
+            except Exception as e:
+                logger.error(f"Error fetching {url}: {type(e).__name__}: {e}")
+                result.error_count += 1
+                result.errors.append(f"Error fetching {url}: {type(e).__name__}")
+                
+                if not self.continue_on_timeout:
+                    break
         
-        return snippets
+        # Calculate stats
+        result.fetch_time_ms = (time.time() - start_time) * 1000
+        result.fetch_count = len(external_items)
+        result.external_items = external_items
+        
+        # Determine success
+        if external_items:
+            result.success = True
+            result.used_external = True
+            logger.info(f"External fetch succeeded: {len(external_items)} items in {result.fetch_time_ms:.1f}ms")
+        else:
+            result.success = False
+            result.used_external = False
+            logger.warning(f"External fetch failed: {result.timeout_count} timeouts, {result.error_count} errors")
+        
+        return result
     
-    def _redact_content(self, content: str) -> str:
-        """Redact sensitive content from text."""
-        if not self.config.enable_redaction:
-            return content
-        
-        redacted = content
-        
-        for pattern in self.config.redaction_patterns:
-            redacted = re.sub(pattern, '[REDACTED]', redacted, flags=re.IGNORECASE)
-        
-        return redacted
-    
-    def _create_snippet(self, content: str, url: str) -> Optional[str]:
-        """Create a snippet from content."""
-        if not content:
-            return None
-        
-        # Clean content
-        content = re.sub(r'\s+', ' ', content).strip()
-        
-        # Truncate to max length
-        if len(content) > self.config.max_snippet_length:
-            content = content[:self.config.max_snippet_length].rsplit(' ', 1)[0] + "..."
-        
-        # Ensure minimum length
-        if len(content) < 20:
-            return None
-        
-        return content
-    
-    async def create_compare_summary_with_external(
+    async def compare(
         self,
         query: str,
-        internal_candidates: List[RetrievalCandidate],
-        external_urls: List[str],
-        feature_flags: Dict[str, bool]
-    ) -> CompareSummary:
+        internal_results: List[Dict[str, Any]],
+        external_urls: List[str]
+    ) -> Dict[str, Any]:
         """
-        Create CompareSummary with external sources.
+        Compare internal results with external sources.
         
         Args:
-            query: The query being analyzed
-            internal_candidates: Internal retrieval candidates
-            external_urls: URLs to fetch external content from
-            feature_flags: Feature flags including factare.allow_external
+            query: Search query
+            internal_results: Internal search results
+            external_urls: External URLs to fetch and compare
             
         Returns:
-            CompareSummary with both internal and external evidence
+            Comparison results with internal results always present
         """
-        result = await self.compare_with_external(
-            query, internal_candidates, external_urls, feature_flags
-        )
+        logger.info(f"Starting comparison: {len(internal_results)} internal, {len(external_urls)} external URLs")
         
-        # Convert evidence items to the format expected by create_compare_summary
-        evidence_items_data = []
-        for item in result.evidence_items:
-            evidence_items_data.append({
-                'id': item.id,
-                'snippet': item.snippet,
-                'source': item.source,
-                'score': item.score,
-                'url': item.url,
-                'timestamp': item.timestamp.isoformat() if item.timestamp else None,
-                'metadata': item.metadata
-            })
+        # Always include internal results
+        comparison = {
+            'query': query,
+            'internal': internal_results,
+            'external': [],
+            'used_external': False,
+            'external_fetch_time_ms': 0.0,
+            'external_fetch_count': 0,
+            'timeout_count': 0,
+            'error_count': 0,
+            'errors': []
+        }
         
-        if not result.has_binary_contrast:
-            # Create a neutral summary
-            return CompareSummary(
-                query=query,
-                stance_a="No clear stance A identified",
-                stance_b="No clear stance B identified",
-                evidence=result.evidence_items,
-                decision=result.decision,
-                created_at=datetime.now(),
-                metadata={
-                    **result.metadata,
-                    'external_sources_used': len([item for item in result.evidence_items if item.is_external]),
-                    'external_urls_provided': len(external_urls),
-                    'external_urls_whitelisted': len([url for url in external_urls if is_source_whitelisted(url)])
-                }
-            )
-        
-        return CompareSummary(
+        # Try to fetch external sources
+        external_result = await self.fetch_external_sources(
             query=query,
-            stance_a=result.stance_a or "Stance A not identified",
-            stance_b=result.stance_b or "Stance B not identified",
-            evidence=result.evidence_items,
-            decision=result.decision,
-            created_at=datetime.now(),
-            metadata={
-                **result.metadata,
-                'external_sources_used': len([item for item in result.evidence_items if item.is_external]),
-                'external_urls_provided': len(external_urls),
-                'external_urls_whitelisted': len([url for url in external_urls if is_source_whitelisted(url)])
-            }
+            urls=external_urls,
+            internal_results=internal_results
         )
-    
-    def get_rate_limit_status(self) -> Dict[str, Any]:
-        """Get current rate limit status for all domains."""
-        now = datetime.now()
-        status = {}
         
-        for domain, rate_info in self.rate_limits.items():
-            status[domain] = {
-                'request_count': rate_info.request_count,
-                'last_request': rate_info.last_request.isoformat() if rate_info.last_request else None,
-                'window_start': rate_info.window_start.isoformat() if rate_info.window_start else None,
-                'within_limits': rate_info.request_count < self.config.rate_limit_per_domain
-            }
+        # Update comparison with external results
+        comparison['external'] = external_result.external_items
+        comparison['used_external'] = external_result.used_external
+        comparison['external_fetch_time_ms'] = external_result.fetch_time_ms
+        comparison['external_fetch_count'] = external_result.fetch_count
+        comparison['timeout_count'] = external_result.timeout_count
+        comparison['error_count'] = external_result.error_count
+        comparison['errors'] = external_result.errors
         
-        return status
-    
-    def reset_rate_limits(self):
-        """Reset all rate limits."""
-        self.rate_limits.clear()
-        self.whitelist_cache.clear()
+        # Log final status
+        if external_result.used_external:
+            logger.info(f"Comparison complete: used external sources ({external_result.fetch_count} items)")
+        else:
+            logger.info(f"Comparison complete: internal-only fallback (external failed)")
+        
+        return comparison
 
-# Convenience function for synchronous usage
-def create_external_adapter(config: Optional[ExternalAdapterConfig] = None, web_adapter=None) -> ExternalCompareAdapter:
-    """Create an external compare adapter."""
-    return ExternalCompareAdapter(config, web_adapter)
 
-# Async convenience function
-async def compare_with_external_sources(
-    query: str,
-    internal_candidates: List[RetrievalCandidate],
-    external_urls: List[str],
-    feature_flags: Dict[str, bool],
-    config: Optional[ExternalAdapterConfig] = None
-) -> CompareSummary:
+async def fetch_with_fallback(
+    adapter,
+    urls: List[str],
+    timeout_ms_per_request: int = 2000,
+    max_sources: int = 5
+) -> Tuple[List[Dict[str, Any]], bool]:
     """
-    Compare with external sources (convenience function).
+    Fetch from external sources with graceful fallback.
+    
+    Convenience function for simple fetch-with-fallback behavior.
     
     Args:
-        query: The query being analyzed
-        internal_candidates: Internal retrieval candidates
-        external_urls: URLs to fetch external content from
-        feature_flags: Feature flags including factare.allow_external
-        config: Optional adapter configuration
+        adapter: WebExternalAdapter instance
+        urls: List of URLs to fetch
+        timeout_ms_per_request: Timeout per request in milliseconds
+        max_sources: Maximum sources to fetch
         
     Returns:
-        CompareSummary with both internal and external evidence
+        Tuple of (external_items, used_external)
+        - external_items: List of fetched items (empty if all failed)
+        - used_external: True if any external fetch succeeded
     """
-    adapter = ExternalCompareAdapter(config)
-    return await adapter.create_compare_summary_with_external(
-        query, internal_candidates, external_urls, feature_flags
+    comparer = ExternalComparer(
+        adapter=adapter,
+        timeout_ms_per_request=timeout_ms_per_request,
+        max_sources=max_sources,
+        continue_on_timeout=True
     )
+    
+    result = await comparer.fetch_external_sources(
+        query="",
+        urls=urls
+    )
+    
+    return result.external_items, result.used_external

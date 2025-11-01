@@ -5,8 +5,15 @@ import re
 import hashlib
 import datetime
 from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
 
 from ingest.simhash import simhash64, hamming  # expects your existing file
+from nlp.tokenize import tokenize_text, TokenizationBackend
+from nlp.verbs import extract_predicates, PredicateFrame
+from nlp.frames import extract_event_frames, EventFrame
+from nlp.concepts import suggest_concepts
+from nlp.contradictions import detect_contradictions, ContradictionCandidate
+from core.guards import forbid_external_persistence
 
 # -----------------------------
 # small utilities
@@ -180,15 +187,28 @@ def upsert_memories_from_chunks(
     source: str = "upload",
     text_col_env: str = "text",
     author_user_id: Optional[str] = None,
+    source_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     - exact duplicates (sha256) are skipped
     - near-duplicates (SimHash Hamming <= SIMHASH_DISTANCE) are updated in-place when UPSERT_MODE=update
       or appended as new when UPSERT_MODE=append
     - entity_ids are linked and included in Pinecone metadata
+    
+    CRITICAL: This function guards against external content persistence.
+    If source_metadata contains external markers (URL, external=True), it will raise.
     """
     tags = tags or []
     role_view = role_view or []
+    
+    # CRITICAL: Guard against external content ingestion
+    # Check if the source has external markers before processing ANY chunks
+    if source_metadata:
+        forbid_external_persistence(
+            [source_metadata],
+            item_type="memory_source",
+            raise_on_external=True
+        )
     text_col = (os.getenv("MEMORIES_TEXT_COLUMN") or text_col_env or "text").strip().lower()
     mode = (os.getenv("UPSERT_MODE", "update")).lower()
     sim_thresh = int(os.getenv("SIMHASH_DISTANCE", "6"))
@@ -418,3 +438,88 @@ def upsert_memories_from_chunks(
 
     # final return (after processing all chunks)
     return {"upserted": created, "updated": updated, "skipped": skipped}
+
+
+# -----------------------------
+# Analysis Context and Limits
+# -----------------------------
+@dataclass
+class AnalysisContext:
+    """Context for chunk analysis."""
+    backend: Optional[TokenizationBackend] = None
+    existing_concepts: Optional[List[Dict[str, str]]] = None
+
+
+@dataclass
+class AnalysisLimits:
+    """Limits for chunk analysis."""
+    max_ms_per_chunk: Optional[int] = None
+    max_verbs: Optional[int] = None
+    max_frames: Optional[int] = None
+    max_concepts: Optional[int] = None
+
+
+@dataclass
+class AnalysisResult:
+    """Results from chunk analysis."""
+    predicates: List[PredicateFrame]
+    frames: List[EventFrame]
+    concepts: List[Dict[str, str]]
+    contradictions: List[ContradictionCandidate]
+
+
+# -----------------------------
+# Analyze Chunk (NLP Pipeline)
+# -----------------------------
+def analyze_chunk(
+    text: str,
+    ctx: Optional[AnalysisContext] = None,
+    limits: Optional[AnalysisLimits] = None,
+) -> AnalysisResult:
+    """
+    Wire tokenize → verbs → frames → concepts → contradictions into a single function.
+    
+    Args:
+        text: The text chunk to analyze
+        ctx: Analysis context with backend and existing concepts
+        limits: Limits for analysis (max verbs, frames, concepts, time budget)
+    
+    Returns:
+        AnalysisResult with predicates, frames, concepts, and contradictions
+    """
+    ctx = ctx or AnalysisContext()
+    limits = limits or AnalysisLimits()
+    
+    # Extract predicates (verbs)
+    predicates = extract_predicates(
+        text,
+        backend=ctx.backend,
+        max_verbs=limits.max_verbs,
+    )
+    
+    # Extract event frames
+    frames = extract_event_frames(
+        text,
+        backend=ctx.backend,
+        max_frames=limits.max_frames,
+    )
+    
+    # Suggest concepts
+    existing_concepts = ctx.existing_concepts or []
+    memories = [{"id": "temp", "text": text, "frames": frames}]
+    concepts = suggest_concepts(
+        memories,
+        existing_concepts,
+        backend=ctx.backend,
+        max_concepts=limits.max_concepts,
+    )
+    
+    # Detect contradictions
+    contradictions = detect_contradictions(predicates)
+    
+    return AnalysisResult(
+        predicates=predicates,
+        frames=frames,
+        concepts=concepts,
+        contradictions=contradictions,
+    )

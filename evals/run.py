@@ -8,6 +8,7 @@ import sys
 import json
 import time
 import statistics
+import yaml
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -487,15 +488,115 @@ class EvalRunner:
         
         return summary
 
+def write_json_report(results: List[EvalResult], summary: EvalSummary, output_path: str):
+    """Write JSON report of evaluation results."""
+    report = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "summary": {
+            "total_cases": summary.total_cases,
+            "passed_cases": summary.passed_cases,
+            "failed_cases": summary.failed_cases,
+            "pass_rate": summary.passed_cases / summary.total_cases if summary.total_cases > 0 else 0.0,
+            "avg_latency_ms": summary.avg_latency_ms,
+            "p95_latency_ms": summary.p95_latency_ms,
+            "max_latency_ms": summary.max_latency_ms,
+            "latency_distribution": summary.latency_distribution,
+            "timing_breakdown": summary.timing_breakdown,
+            "category_breakdown": summary.category_breakdown,
+            "constraint_violations": summary.constraint_violations,
+            "implicate_lift_metrics": summary.implicate_lift_metrics,
+            "contradiction_metrics": summary.contradiction_metrics,
+            "performance_issues": summary.performance_issues
+        },
+        "results": [
+            {
+                "case_id": r.case_id,
+                "prompt": r.prompt,
+                "category": r.category,
+                "passed": r.passed,
+                "latency_ms": r.latency_ms,
+                "error": r.error,
+                "retrieved_chunks": r.retrieved_chunks,
+                "implicate_rank": r.implicate_rank,
+                "contradictions_found": r.contradictions_found,
+                "contradiction_score": r.contradiction_score,
+                "lift_score": r.lift_score,
+                "total_latency_ms": r.total_latency_ms,
+                "retrieval_latency_ms": r.retrieval_latency_ms,
+                "ranking_latency_ms": r.ranking_latency_ms,
+                "packing_latency_ms": r.packing_latency_ms,
+                "meets_latency_constraint": r.meets_latency_constraint,
+                "meets_implicate_constraint": r.meets_implicate_constraint,
+                "meets_contradiction_constraint": r.meets_contradiction_constraint
+            }
+            for r in results
+        ]
+    }
+    
+    # Create output directory if needed
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    
+    with open(output_path, 'w') as f:
+        json.dump(report, f, indent=2)
+    
+    print(f"\n📄 JSON report written to: {output_path}")
+
+def print_latency_histogram(results: List[EvalResult], buckets: List[int] = None):
+    """Print ASCII histogram of latency distribution."""
+    if not results:
+        return
+    
+    if buckets is None:
+        buckets = [100, 200, 300, 500, 800, 1000]
+    
+    latencies = [r.latency_ms for r in results]
+    
+    # Count latencies in each bucket
+    bucket_counts = {}
+    for bucket in buckets:
+        bucket_counts[bucket] = sum(1 for lat in latencies if lat <= bucket and (bucket == buckets[0] or lat > buckets[buckets.index(bucket) - 1]))
+    
+    # Add overflow bucket
+    overflow = sum(1 for lat in latencies if lat > buckets[-1])
+    
+    print(f"\n📊 Latency Histogram:")
+    print(f"{'Bucket (ms)':<15} {'Count':<8} {'Percentage':<12} {'Bar'}")
+    print("-" * 60)
+    
+    max_count = max(list(bucket_counts.values()) + [overflow]) if bucket_counts or overflow else 1
+    bar_width = 40
+    
+    prev = 0
+    for bucket in buckets:
+        count = bucket_counts.get(bucket, 0)
+        pct = count / len(latencies) * 100 if latencies else 0
+        bar_len = int(count / max_count * bar_width) if max_count > 0 else 0
+        bar = "█" * bar_len
+        print(f"{prev}-{bucket} ms{' '*(10-len(str(bucket)))}{count:<8} {pct:>5.1f}%       {bar}")
+        prev = bucket
+    
+    if overflow > 0:
+        pct = overflow / len(latencies) * 100
+        bar_len = int(overflow / max_count * bar_width) if max_count > 0 else 0
+        bar = "█" * bar_len
+        print(f">{buckets[-1]} ms{' '*(10-len(str(buckets[-1])))}{overflow:<8} {pct:>5.1f}%       {bar}")
+
 def main():
     """Main entry point."""
     import argparse
+    import yaml
     
     parser = argparse.ArgumentParser(description="Run evaluations for implicate lift and contradictions")
+    parser.add_argument("--config", default="evals/config.yaml", help="Path to config YAML file")
+    parser.add_argument("--suite", help="Suite name to run (from config)")
     parser.add_argument("--testsets", default="evals/testsets", help="Directory containing testset JSON files")
     parser.add_argument("--testset", help="Single testset file to run")
     parser.add_argument("--base-url", default=os.getenv("BASE_URL", "http://localhost:8000"), help="Base URL for API")
     parser.add_argument("--api-key", default=os.getenv("X_API_KEY", ""), help="API key")
+    parser.add_argument("--pipeline", choices=["legacy", "new"], help="Force specific pipeline")
+    parser.add_argument("--output-json", help="Path for JSON report output")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument("--max-latency", type=int, default=500, help="Maximum P95 latency in ms")
     parser.add_argument("--max-individual-latency", type=int, default=1000, help="Maximum individual request latency in ms")
@@ -503,8 +604,45 @@ def main():
     parser.add_argument("--implicate-k", type=int, default=8, help="Expected implicate top-k")
     parser.add_argument("--ci-mode", action="store_true", help="Enable CI mode with stricter constraints")
     parser.add_argument("--skip-flaky", action="store_true", help="Skip tests marked as flaky")
+    parser.add_argument("--show-histogram", action="store_true", help="Show latency histogram")
     
     args = parser.parse_args()
+    
+    # Load config if provided
+    config = None
+    if args.config and os.path.exists(args.config):
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+        print(f"📋 Loaded config from: {args.config}")
+    
+    # Handle suite configuration
+    suite_config = None
+    if args.suite and config:
+        # Find suite in config
+        suites = config.get("suites", [])
+        for s in suites:
+            if s.get("name") == args.suite:
+                suite_config = s
+                break
+        
+        if not suite_config:
+            print(f"❌ Suite '{args.suite}' not found in config")
+            sys.exit(1)
+        
+        print(f"🎯 Running suite: {suite_config['name']}")
+        print(f"   Description: {suite_config.get('description', 'N/A')}")
+        
+        # Override with suite constraints
+        if "constraints" in suite_config:
+            constraints = suite_config["constraints"]
+            if "max_latency_ms" in constraints:
+                args.max_latency = constraints["max_latency_ms"]
+            if "min_pass_rate" in constraints:
+                print(f"   Min pass rate: {constraints['min_pass_rate']*100:.1f}%")
+        
+        # Set pipeline from suite if not overridden
+        if not args.pipeline and "pipeline" in suite_config:
+            args.pipeline = suite_config["pipeline"]
     
     # Configure runner with arguments
     runner = EvalRunner(base_url=args.base_url, api_key=args.api_key)
@@ -521,6 +659,11 @@ def main():
     if args.skip_flaky:
         print("⏭️  Skipping flaky tests")
     
+    # Show pipeline info
+    if args.pipeline:
+        pipeline_name = "Legacy Pipeline" if args.pipeline == "legacy" else "New REDO Pipeline"
+        print(f"🔧 Pipeline: {pipeline_name}")
+    
     print(f"🚀 Starting evaluation with constraints:")
     print(f"   P95 latency: < {runner.max_latency_ms}ms")
     print(f"   Individual latency: < {runner.max_individual_latency_ms}ms")
@@ -528,14 +671,47 @@ def main():
     print(f"   Implicate K: {runner.expected_implicate_k}")
     
     try:
-        if args.testset:
+        # Determine which testsets to run
+        testsets_to_run = []
+        
+        if suite_config:
+            # Run testsets from suite
+            for testset_file in suite_config.get("testsets", []):
+                testsets_to_run.append(testset_file)
+        elif args.testset:
             # Run single testset
-            results = runner.run_testset(args.testset)
+            testsets_to_run.append(args.testset)
         else:
-            # Run all testsets
-            results = runner.run_all_testsets(args.testsets)
+            # Run all testsets in directory
+            testsets_to_run = None
+        
+        # Run evaluations
+        if testsets_to_run:
+            for testset_file in testsets_to_run:
+                print(f"\n{'='*60}")
+                print(f"Running {testset_file}")
+                print(f"{'='*60}")
+                runner.run_testset(testset_file)
+        else:
+            runner.run_all_testsets(args.testsets)
         
         summary = runner.print_summary()
+        
+        # Show latency histogram if requested
+        if args.show_histogram or (config and config.get("reporting", {}).get("console", {}).get("show_latency_histogram")):
+            histogram_buckets = None
+            if config:
+                histogram_buckets = config.get("reporting", {}).get("console", {}).get("histogram_buckets")
+            print_latency_histogram(runner.results, buckets=histogram_buckets)
+        
+        # Write JSON report if requested
+        output_json = args.output_json
+        if not output_json and config:
+            if config.get("reporting", {}).get("json_output"):
+                output_json = config.get("reporting", {}).get("json_path", "evals/results/latest.json")
+        
+        if output_json:
+            write_json_report(runner.results, summary, output_json)
         
         # Determine exit status
         exit_code = 0
@@ -556,6 +732,17 @@ def main():
             print(f"\n❌ Constraint violations: {constraint_violations_total} total")
             if args.ci_mode:
                 exit_code = 1  # Fail in CI mode
+        
+        # Check suite-specific constraints
+        if suite_config and "constraints" in suite_config:
+            constraints = suite_config["constraints"]
+            pass_rate = summary.passed_cases / summary.total_cases if summary.total_cases > 0 else 0.0
+            
+            if "min_pass_rate" in constraints:
+                min_pass_rate = constraints["min_pass_rate"]
+                if pass_rate < min_pass_rate:
+                    print(f"\n❌ Pass rate {pass_rate:.1%} below minimum {min_pass_rate:.1%}")
+                    exit_code = 1
         
         if exit_code == 0:
             print(f"\n✅ All evaluations passed!")

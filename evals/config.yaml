@@ -1,0 +1,201 @@
+# Evaluation Harness Configuration
+# Defines test suites, pipelines, and constraints
+
+version: "1.0"
+
+# Pipeline configurations
+pipelines:
+  legacy:
+    name: "Legacy Pipeline"
+    enabled: true
+    endpoint: "/chat"
+    timeout_ms: 30000
+    flags:
+      use_redo: false
+      use_implicate_lift: false
+      use_contradiction_detection: false
+  
+  new:
+    name: "New REDO Pipeline"
+    enabled: true
+    endpoint: "/chat"
+    timeout_ms: 30000
+    flags:
+      use_redo: true
+      use_implicate_lift: true
+      use_contradiction_detection: true
+
+# Performance constraints
+constraints:
+  latency:
+    p95_ms: 500
+    p99_ms: 1000
+    max_individual_ms: 1000
+  
+  accuracy:
+    min_pass_rate: 0.90
+    min_ordering_accuracy: 0.85
+    min_contradiction_detection: 0.80
+  
+  quality:
+    min_implicate_lift_rate: 0.70
+    max_explicate_k: 16
+    max_implicate_k: 8
+
+# Test suites
+suites:
+  - name: "smoke"
+    description: "Quick smoke test suite"
+    enabled: true
+    pipeline: "new"
+    testsets:
+      - "testsets/performance.json"
+    constraints:
+      max_latency_ms: 500
+      min_pass_rate: 1.0
+  
+  - name: "implicate_lift"
+    description: "Implicate lift evaluation"
+    enabled: true
+    pipeline: "new"
+    testsets:
+      - "testsets/implicate_lift.json"
+    constraints:
+      max_latency_ms: 1000
+      min_pass_rate: 0.90
+      min_lift_rate: 0.70
+  
+  - name: "contradictions"
+    description: "Contradiction detection evaluation"
+    enabled: true
+    pipeline: "new"
+    testsets:
+      - "testsets/contradictions.json"
+    constraints:
+      max_latency_ms: 1000
+      min_pass_rate: 0.85
+      min_detection_accuracy: 0.80
+  
+  - name: "redo_ordering"
+    description: "REDO ordering evaluation"
+    enabled: true
+    pipeline: "new"
+    testsets:
+      - "testsets/redo/ordering.json"
+    constraints:
+      max_latency_ms: 800
+      min_pass_rate: 0.90
+      min_ordering_accuracy: 0.85
+  
+  - name: "redo_deterministic"
+    description: "REDO deterministic behavior"
+    enabled: true
+    pipeline: "new"
+    deterministic: true
+    seed: 42
+    testsets:
+      - "testsets/redo/deterministic.json"
+    constraints:
+      max_latency_ms: 500
+      min_pass_rate: 1.0
+      min_deterministic_consistency: 1.0
+  
+  - name: "full"
+    description: "Full evaluation suite"
+    enabled: true
+    pipeline: "new"
+    testsets:
+      - "testsets/performance.json"
+      - "testsets/implicate_lift.json"
+      - "testsets/contradictions.json"
+      - "testsets/redo/ordering.json"
+      - "testsets/redo/deterministic.json"
+      - "testsets/redo/contradiction_surfacing.json"
+    constraints:
+      max_latency_ms: 1000
+      min_pass_rate: 0.85
+  
+  - name: "legacy_baseline"
+    description: "Legacy pipeline baseline"
+    enabled: true
+    pipeline: "legacy"
+    testsets:
+      - "testsets/performance.json"
+    constraints:
+      max_latency_ms: 1000
+      min_pass_rate: 0.80
+  
+  - name: "comparison"
+    description: "Compare legacy vs new pipeline"
+    enabled: true
+    compare_pipelines:
+      - "legacy"
+      - "new"
+    testsets:
+      - "testsets/performance.json"
+    constraints:
+      max_latency_ms: 1000
+
+# Reporting configuration
+reporting:
+  json_output: true
+  json_path: "evals/results/latest.json"
+  html_output: false
+  html_path: "evals/results/latest.html"
+  
+  console:
+    verbose: false
+    show_failures: true
+    show_warnings: true
+    show_latency_histogram: true
+    histogram_buckets: [100, 200, 300, 500, 800, 1000]
+  
+  metrics:
+    - name: "pass_rate"
+      format: "percentage"
+    - name: "avg_latency_ms"
+      format: "milliseconds"
+    - name: "p95_latency_ms"
+      format: "milliseconds"
+    - name: "ordering_accuracy"
+      format: "percentage"
+    - name: "contradiction_detection_accuracy"
+      format: "percentage"
+
+# Environment configuration
+environment:
+  base_url: "${BASE_URL:-http://localhost:8000}"
+  api_key: "${X_API_KEY:-}"
+  timeout_ms: 30000
+  max_retries: 0
+  retry_delay_ms: 1000
+
+# CI/CD configuration
+ci:
+  enabled: false
+  strict_mode: true
+  fail_on_warning: false
+  parallel_execution: false
+  max_workers: 4
+
+# Stub suite for testing the harness itself
+stub_suite:
+  name: "stub"
+  description: "Stub suite for testing harness"
+  enabled: true
+  pipeline: "new"
+  testsets: []
+  inline_cases:
+    - id: "stub_001"
+      prompt: "Test prompt 1"
+      category: "smoke"
+      must_include: ["test"]
+      max_latency_ms: 100
+    - id: "stub_002"
+      prompt: "Test prompt 2"
+      category: "smoke"
+      must_include: ["test"]
+      max_latency_ms: 100
+  constraints:
+    max_latency_ms: 150
+    min_pass_rate: 1.0

@@ -1,0 +1,31 @@
+# External source comparison policy configuration
+# Controls how external sources are fetched and compared with internal knowledge
+
+# Maximum number of external sources to query per comparison run
+max_external_sources_per_run: 6
+
+# Maximum total characters to retrieve from all external sources combined
+max_total_external_chars: 2400
+
+# Roles allowed to trigger external source comparisons
+allowed_roles_for_external:
+  - pro
+  - scholars
+  - analytics
+
+# Timeout in milliseconds for each external HTTP request
+timeout_ms_per_request: 2000
+
+# Rate limit: maximum requests per domain per minute
+rate_limit_per_domain_per_min: 6
+
+# Tie-breaking strategy when internal and external sources have equal confidence
+# Options: prefer_internal, prefer_external, abstain
+tie_break: prefer_internal
+
+# Regex patterns to redact from external content (for security/privacy)
+redact_patterns:
+  - "Authorization:\\s+\\S+"
+  - "\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b"
+  - "Bearer\\s+[A-Za-z0-9\\-._~+/]+=*"
+  - "api[_-]?key['\"]?\\s*[:=]\\s*['\"]?[A-Za-z0-9]+"

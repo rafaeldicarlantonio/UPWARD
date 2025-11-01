@@ -6,7 +6,7 @@ import time
 from uuid import uuid4
 from typing import Optional, List, Dict, Any, Literal
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, model_validator
 from openai import OpenAI
 
@@ -24,8 +24,11 @@ from core.ledger import log_chat_request, write_ledger, LedgerOptions
 from core.orchestrator.redo import RedoOrchestrator
 from core.types import QueryContext, OrchestrationConfig
 from core.trace_summary import summarize_for_role
+from core.presenters import redact_chat_response, format_external_evidence  # NEW: Role-aware redaction
+from core.rbac import ROLE_GENERAL  # NEW: Default role
 from feature_flags import get_feature_flag
 from core.metrics import record_api_call, record_error, time_operation, RetrievalMetrics
+from core.policy import can_use_external_compare
 from config import load_config
 
 router = APIRouter()
@@ -228,11 +231,20 @@ def _format_contradictions(contradictions: List[Dict[str, Any]]) -> str:
 # ---------- Route ----------
 @router.post("/chat", response_model=ChatResp)
 def chat_chat_post(
+    request: Request,  # NEW: Request object for role context
     body: ChatReq,
     x_api_key: Optional[str] = Header(None),
     x_user_email: Optional[str] = Header(None),  # attribution header
 ):
     start_time = time.time()
+    
+    # Extract user roles from request context (if middleware is present)
+    user_roles = [ROLE_GENERAL]  # Default to general
+    try:
+        if hasattr(request.state, 'ctx') and hasattr(request.state.ctx, 'roles'):
+            user_roles = request.state.ctx.roles or [ROLE_GENERAL]
+    except Exception:
+        pass  # Fallback to general if context not available
     
     try:
         _auth(x_api_key)
@@ -282,57 +294,81 @@ def chat_chat_post(
                 # Create selector based on feature flags
                 selector = SelectionFactory.create_selector()
             
-            # Generate embedding
-            embedding = _embed(body.prompt)
-            
-            # Select content using the appropriate strategy
-            selection_result = selector.select(
-                query=body.prompt,
-                embedding=embedding,
-                caller_role=body.role,
-                explicate_top_k=int(os.getenv("TOPK_PER_TYPE", "16")),
-                implicate_top_k=8
-            )
-            
-            # Pack with contradiction detection if enabled
-            if use_contradictions:
-                try:
-                    packing_result = pack_with_contradictions(
-                        context=selection_result.context,
-                        ranked_ids=selection_result.ranked_ids,
-                        top_m=10
-                    )
-                    retrieved_chunks = packing_result.context
-                    contradictions = packing_result.contradictions
-                    contradiction_score = packing_result.contradiction_score
-                    print(f"Contradiction detection: found {len(contradictions)} contradictions")
-                except Exception as e:
-                    print(f"Contradiction detection failed, proceeding without: {e}")
+                # Generate embedding
+                embedding = _embed(body.prompt)
+                
+                # Select content using the appropriate strategy
+                selection_result = selector.select(
+                    query=body.prompt,
+                    embedding=embedding,
+                    caller_role=body.role,
+                    explicate_top_k=int(os.getenv("TOPK_PER_TYPE", "16")),
+                    implicate_top_k=8
+                )
+                
+                # Pack with contradiction detection if enabled
+                if use_contradictions:
+                    try:
+                        packing_result = pack_with_contradictions(
+                            context=selection_result.context,
+                            ranked_ids=selection_result.ranked_ids,
+                            top_m=10
+                        )
+                        retrieved_chunks = packing_result.context
+                        contradictions = packing_result.contradictions
+                        contradiction_score = packing_result.contradiction_score
+                        print(f"Contradiction detection: found {len(contradictions)} contradictions")
+                    except Exception as e:
+                        print(f"Contradiction detection failed, proceeding without: {e}")
+                        retrieved_chunks = selection_result.context
+                        contradictions = []
+                        contradiction_score = 0.0
+                else:
                     retrieved_chunks = selection_result.context
                     contradictions = []
                     contradiction_score = 0.0
-            else:
-                retrieved_chunks = selection_result.context
-                contradictions = []
-                contradiction_score = 0.0
-            
-            # Calculate lift score if using LiftScore ranking
-            if use_liftscore:
+                
+                # Calculate lift score if using LiftScore ranking
+                if use_liftscore:
+                    try:
+                        lift_scores = [item.get("lift_score", 0.0) for item in retrieved_chunks if "lift_score" in item]
+                        if lift_scores:
+                            lift_score = sum(lift_scores) / len(lift_scores)
+                            print(f"LiftScore calculation: average={lift_score:.3f}")
+                    except Exception as e:
+                        print(f"LiftScore calculation failed: {e}")
+                        lift_score = None
+                
+                print(f"Dual retrieval successful: {len(retrieved_chunks)} chunks retrieved")
+                
+            except Exception as e:
+                retrieval_error = str(e)
+                print(f"Dual retrieval failed ({retrieval_error}), falling back to legacy retrieval")
+                # Fallback to legacy retrieval
                 try:
-                    lift_scores = [item.get("lift_score", 0.0) for item in retrieved_chunks if "lift_score" in item]
-                    if lift_scores:
-                        lift_score = sum(lift_scores) / len(lift_scores)
-                        print(f"LiftScore calculation: average={lift_score:.3f}")
-                except Exception as e:
-                    print(f"LiftScore calculation failed: {e}")
+                    retrieved_meta = _retrieve(
+                        sb,
+                        index,
+                        body.prompt,
+                        top_k_per_type=int(os.getenv("TOPK_PER_TYPE", "8"))
+                    )
+                    retrieved_chunks = _pack_context(sb, retrieved_meta)
+                    contradictions = []
+                    contradiction_score = 0.0
                     lift_score = None
-            
-            print(f"Dual retrieval successful: {len(retrieved_chunks)} chunks retrieved")
-            
-        except Exception as e:
-            retrieval_error = str(e)
-            print(f"Dual retrieval failed ({retrieval_error}), falling back to legacy retrieval")
-            # Fallback to legacy retrieval
+                    selection_result = None
+                    print(f"Legacy retrieval fallback successful: {len(retrieved_chunks)} chunks retrieved")
+                except Exception as legacy_error:
+                    print(f"Legacy retrieval also failed: {legacy_error}")
+                    # Final fallback - return empty results
+                    retrieved_chunks = []
+                    contradictions = []
+                    contradiction_score = 0.0
+                    lift_score = None
+                    selection_result = None
+        else:
+            # Use legacy retrieval
+            print("Using legacy retrieval system")
             try:
                 retrieved_meta = _retrieve(
                     sb,
@@ -345,44 +381,20 @@ def chat_chat_post(
                 contradiction_score = 0.0
                 lift_score = None
                 selection_result = None
-                print(f"Legacy retrieval fallback successful: {len(retrieved_chunks)} chunks retrieved")
-            except Exception as legacy_error:
-                print(f"Legacy retrieval also failed: {legacy_error}")
+                print(f"Legacy retrieval successful: {len(retrieved_chunks)} chunks retrieved")
+            except Exception as e:
+                print(f"Legacy retrieval failed: {e}")
                 # Final fallback - return empty results
                 retrieved_chunks = []
                 contradictions = []
                 contradiction_score = 0.0
                 lift_score = None
                 selection_result = None
-            else:
-        # Use legacy retrieval
-        print("Using legacy retrieval system")
-        try:
-            retrieved_meta = _retrieve(
-                sb,
-                index,
-                body.prompt,
-                top_k_per_type=int(os.getenv("TOPK_PER_TYPE", "8"))
-            )
-            retrieved_chunks = _pack_context(sb, retrieved_meta)
-            contradictions = []
-            contradiction_score = 0.0
-            lift_score = None
-            selection_result = None
-            print(f"Legacy retrieval successful: {len(retrieved_chunks)} chunks retrieved")
-        except Exception as e:
-            print(f"Legacy retrieval failed: {e}")
-            # Final fallback - return empty results
-            retrieved_chunks = []
-            contradictions = []
-            contradiction_score = 0.0
-            lift_score = None
-            selection_result = None
     
     retrieval_time = (time.time() - retrieval_start) * 1000  # Convert to milliseconds
 
     # 🔗 Graph Expansion (3 hops) - non-fatal
-        try:
+    try:
         graph_neighbors = expand_entities(sb, retrieved_chunks, max_hops=3, max_neighbors=10, max_per_entity=3)
         retrieved_chunks.extend(graph_neighbors)
     except Exception as e:
@@ -479,6 +491,36 @@ def chat_chat_post(
 
     # Collect just the IDs (for schema validation of "citations")
     context_ids = [chunk["id"] for chunk in retrieved_chunks]
+
+    # 🌐 External Comparison - behind feature flag and role gate
+    external_results = None
+    external_time_ms = 0
+    external_fetch_count = 0
+    
+    try:
+        if get_feature_flag("external_compare", default=False):
+            # Check if user has access to external comparison
+            if can_use_external_compare(user_roles):
+                external_start = time.time()
+                print("Running external comparison (flag on, role allowed)")
+                
+                # TODO: Implement actual external fetching
+                # For now, placeholder that would call external adapter
+                # external_results = await fetch_external_content(body.prompt, user_roles)
+                
+                external_time_ms = (time.time() - external_start) * 1000
+                external_fetch_count = len(external_results) if external_results else 0
+                
+                if external_results:
+                    print(f"External comparison fetched {external_fetch_count} results in {external_time_ms:.1f}ms")
+                else:
+                    print(f"External comparison returned no results")
+            else:
+                print("External comparison: role denied")
+    except Exception as e:
+        print(f"External comparison failed: {e}")
+        # Non-fatal: continue with internal results only
+        external_results = None
 
     # Answer
     draft = _answer_json(body.prompt, context_for_llm, contradictions)
@@ -615,6 +657,20 @@ def chat_chat_post(
                 hash_algorithm="sha256"
             )
             
+            # Add external comparison metadata to orchestration result if available
+            if external_results is not None or get_feature_flag("external_compare", default=False):
+                # Augment orchestration result with external metadata
+                if not hasattr(orchestration_result, 'metadata'):
+                    orchestration_result.metadata = {}
+                
+                orchestration_result.metadata['factare.external'] = {
+                    'enabled': get_feature_flag("external_compare", default=False),
+                    'role_allowed': can_use_external_compare(user_roles) if get_feature_flag("external_compare", default=False) else False,
+                    'fetch_count': external_fetch_count,
+                    'fetch_time_ms': round(external_time_ms, 2),
+                    'has_results': external_results is not None
+                }
+            
             # Write to ledger
             ledger_entry = write_ledger(
                 session_id=session_id,
@@ -645,6 +701,25 @@ def chat_chat_post(
             "ledger_enabled": get_feature_flag("ledger.enabled", default=False)
         }
         
+        # Add external comparison metadata to response metrics
+        if external_results is not None:
+            response_metrics["external_compare"] = {
+                "enabled": True,
+                "fetched": external_fetch_count,
+                "time_ms": round(external_time_ms, 2)
+            }
+        elif get_feature_flag("external_compare", default=False):
+            response_metrics["external_compare"] = {
+                "enabled": True,
+                "fetched": 0,
+                "time_ms": 0,
+                "reason": "role_denied" if not can_use_external_compare(user_roles) else "no_results"
+            }
+        else:
+            response_metrics["external_compare"] = {
+                "enabled": False
+            }
+        
         # Add orchestration metrics if available
         if orchestration_result:
             response_metrics.update({
@@ -659,7 +734,8 @@ def chat_chat_post(
         if body.debug and orchestration_warnings:
             response_warnings.extend(orchestration_warnings)
         
-        return {
+        # Build raw response
+        raw_response = {
             "session_id": session_id,
             "answer": draft.get("answer") or "",
             "citations": draft.get("citations") or [],
@@ -667,9 +743,30 @@ def chat_chat_post(
             "autosave": autosave,
             "redteam": verdict,
             "metrics": response_metrics,
-            "warnings": response_warnings if body.debug else []
+            "warnings": response_warnings if body.debug else [],
+            # Include context and provenance data that may need redaction
+            "context": [
+                {
+                    "id": chunk.get("id"),
+                    "text": chunk.get("text"),
+                    "type": chunk.get("type"),
+                    "provenance": chunk.get("provenance"),
+                    "ledger": chunk.get("process_trace") or chunk.get("ledger")
+                }
+                for chunk in retrieved_chunks
+            ] if body.debug else []
         }
-    
+        
+        # Add external sources if available
+        if external_results:
+            formatted_external = format_external_evidence(external_results)
+            raw_response["external_sources"] = formatted_external
+        
+        # Apply role-based redaction
+        redacted_response = redact_chat_response(raw_response, user_roles)
+        
+        return redacted_response
+        
     except Exception as e:
         # Record error metrics
         total_latency_ms = (time.time() - start_time) * 1000

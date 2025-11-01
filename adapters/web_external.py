@@ -2,9 +2,12 @@
 
 import asyncio
 import time
-from typing import Optional, Dict, Any
+import logging
+from typing import Optional, Dict, Any, List, Tuple
 from urllib.parse import urlparse
 import re
+
+logger = logging.getLogger(__name__)
 
 try:
     import aiohttp
@@ -14,14 +17,55 @@ except ImportError:
     aiohttp = None
 
 class WebExternalAdapter:
-    """Web adapter for fetching external content."""
+    """Web adapter for fetching external content with whitelist and rate limiting."""
     
-    def __init__(self, timeout: int = 5, max_retries: int = 2):
+    def __init__(
+        self, 
+        timeout: int = 5,
+        timeout_ms: Optional[int] = None,
+        max_retries: int = 2,
+        url_matcher: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
+        continue_on_failure: bool = True
+    ):
+        """
+        Initialize web external adapter.
+        
+        Args:
+            timeout: Request timeout in seconds (deprecated, use timeout_ms)
+            timeout_ms: Request timeout in milliseconds (preferred)
+            max_retries: Maximum retry attempts
+            url_matcher: URLMatcher instance for whitelist checking
+            rate_limiter: RateLimiter instance for rate limiting
+            continue_on_failure: If True, continue with other sources on failure
+        """
         if not AIOHTTP_AVAILABLE:
             raise ImportError("aiohttp is required for WebExternalAdapter")
-        self.timeout = timeout
+        
+        # Use timeout_ms if provided, otherwise convert timeout seconds to ms
+        if timeout_ms is not None:
+            self.timeout_ms = timeout_ms
+            self.timeout = timeout_ms / 1000.0
+        else:
+            self.timeout = timeout
+            self.timeout_ms = int(timeout * 1000)
+        
         self.max_retries = max_retries
         self.session: Optional[aiohttp.ClientSession] = None
+        self.url_matcher = url_matcher
+        self.rate_limiter = rate_limiter
+        self.continue_on_failure = continue_on_failure
+        
+        # Statistics
+        self.stats = {
+            'total_requests': 0,
+            'whitelisted': 0,
+            'not_whitelisted': 0,
+            'rate_limited': 0,
+            'successful': 0,
+            'failed': 0,
+            'timeouts': 0
+        }
     
     async def __aenter__(self):
         """Async context manager entry."""
@@ -33,8 +77,9 @@ class WebExternalAdapter:
         await self.close()
     
     async def _ensure_session(self):
-        """Ensure HTTP session is created."""
+        """Ensure HTTP session is created with configured timeout."""
         if self.session is None or self.session.closed:
+            # Create timeout from milliseconds
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
@@ -46,19 +91,46 @@ class WebExternalAdapter:
                     'Connection': 'keep-alive',
                 }
             )
+            logger.debug(f"Created HTTP session with timeout={self.timeout}s ({self.timeout_ms}ms)")
     
     async def fetch_content(self, url: str) -> Optional[str]:
         """
-        Fetch content from a URL.
+        Fetch content from a URL with whitelist and rate limit checks.
+        
+        IMPORTANT: This fetches external content for display/comparison ONLY.
+        External content must NEVER be persisted to memories/entities/edges.
+        All results should be marked with provenance.url to prevent auto-ingestion.
         
         Args:
             url: URL to fetch content from
             
         Returns:
-            Extracted text content or None if failed
+            Extracted text content or None if failed/blocked
         """
+        self.stats['total_requests'] += 1
+        
+        logger.info(f"Fetching external content from {url} (display only, will not persist)")
+        
+        # Basic validation
         if not url or not self._is_valid_url(url):
+            self.stats['failed'] += 1
             return None
+        
+        # Check whitelist if matcher provided
+        if self.url_matcher is not None:
+            if not self.url_matcher.is_whitelisted(url):
+                logger.warning(f"URL not whitelisted: {url}")
+                self.stats['not_whitelisted'] += 1
+                return None
+            self.stats['whitelisted'] += 1
+        
+        # Check rate limit if limiter provided
+        if self.rate_limiter is not None:
+            allowed, reason = self.rate_limiter.acquire(url)
+            if not allowed:
+                logger.warning(f"Rate limit exceeded for {url}: {reason}")
+                self.stats['rate_limited'] += 1
+                return None
         
         await self._ensure_session()
         
@@ -71,23 +143,33 @@ class WebExternalAdapter:
                         # Only process text content
                         if 'text/html' in content_type or 'text/plain' in content_type:
                             text = await response.text()
-                            return self._extract_text(text)
+                            extracted = self._extract_text(text)
+                            self.stats['successful'] += 1
+                            return extracted
                         else:
+                            self.stats['failed'] += 1
                             return None
                     else:
+                        self.stats['failed'] += 1
                         return None
                         
             except asyncio.TimeoutError:
+                logger.warning(f"Timeout fetching {url} (attempt {attempt + 1}/{self.max_retries + 1})")
+                self.stats['timeouts'] += 1
                 if attempt < self.max_retries:
                     await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
                     continue
+                self.stats['failed'] += 1
                 return None
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Error fetching {url}: {type(e).__name__} (attempt {attempt + 1}/{self.max_retries + 1})")
                 if attempt < self.max_retries:
                     await asyncio.sleep(0.5 * (attempt + 1))
                     continue
+                self.stats['failed'] += 1
                 return None
         
+        self.stats['failed'] += 1
         return None
     
     def _is_valid_url(self, url: str) -> bool:
@@ -154,20 +236,39 @@ class WebExternalAdapter:
         if self.session and not self.session.closed:
             await self.session.close()
     
-    async def fetch_multiple(self, urls: list[str]) -> Dict[str, Optional[str]]:
+    async def fetch_multiple(
+        self, 
+        urls: List[str],
+        prioritize: bool = True
+    ) -> Dict[str, Optional[str]]:
         """
-        Fetch content from multiple URLs concurrently.
+        Fetch content from multiple URLs concurrently with priority ordering.
         
         Args:
             urls: List of URLs to fetch
+            prioritize: If True, sort by priority from url_matcher
             
         Returns:
             Dictionary mapping URLs to their content
         """
         await self._ensure_session()
         
+        # Sort URLs by priority if matcher available and prioritize enabled
+        fetch_urls = urls[:]
+        if prioritize and self.url_matcher is not None:
+            # Get source info for each URL
+            url_priorities = []
+            for url in urls:
+                match = self.url_matcher.match(url)
+                priority = match.priority if match else 0
+                url_priorities.append((url, priority))
+            
+            # Sort by priority (higher first)
+            url_priorities.sort(key=lambda x: x[1], reverse=True)
+            fetch_urls = [url for url, _ in url_priorities]
+        
         tasks = []
-        for url in urls:
+        for url in fetch_urls:
             task = asyncio.create_task(self.fetch_content(url))
             tasks.append((url, task))
         
@@ -180,6 +281,27 @@ class WebExternalAdapter:
                 results[url] = None
         
         return results
+    
+    def get_stats(self) -> Dict[str, int]:
+        """
+        Get adapter statistics.
+        
+        Returns:
+            Dictionary of statistics
+        """
+        return self.stats.copy()
+    
+    def reset_stats(self):
+        """Reset adapter statistics."""
+        self.stats = {
+            'total_requests': 0,
+            'whitelisted': 0,
+            'not_whitelisted': 0,
+            'rate_limited': 0,
+            'successful': 0,
+            'failed': 0,
+            'timeouts': 0
+        }
     
     def get_domain(self, url: str) -> Optional[str]:
         """Extract domain from URL."""

@@ -1,0 +1,427 @@
+/**
+ * Accessibility Patches
+ * 
+ * Additional a11y enhancements for all components.
+ * Ensures WCAG 2.1 AA compliance and prefers-reduced-motion support.
+ */
+
+@import './theme.css';
+
+/* ============================================================================
+   Global A11y Enhancements
+   ============================================================================ */
+
+/* Ensure all interactive elements have minimum touch target */
+button,
+a,
+[role="button"],
+[tabindex="0"] {
+  min-height: var(--min-touch-target);
+  min-width: var(--min-touch-target);
+}
+
+/* Consistent focus indicators across all components */
+.process-ledger button:focus-visible,
+.contradiction-badge:focus-visible,
+.compare-card button:focus-visible,
+.promote-hypothesis-button:focus-visible,
+.propose-aura-button:focus-visible,
+.evidence-anchor:focus-visible,
+.contradiction-marker:focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--border-radius-sm);
+}
+
+/* ============================================================================
+   ProcessLedger A11y
+   ============================================================================ */
+
+.process-ledger {
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  background: var(--color-background-secondary);
+  color: var(--color-text-primary);
+}
+
+.ledger-expand-button {
+  min-height: var(--min-touch-target);
+  transition: color var(--transition-fast), 
+              background-color var(--transition-fast);
+}
+
+.ledger-expand-button:focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Honor prefers-reduced-motion for ledger expand animation */
+@media (prefers-reduced-motion: reduce) {
+  .ledger-expanded {
+    animation: none !important;
+  }
+  
+  .ledger-loading {
+    animation: none !important;
+  }
+}
+
+/* ============================================================================
+   ContradictionBadge A11y
+   ============================================================================ */
+
+.contradiction-badge {
+  min-height: var(--min-touch-target);
+  border: 2px solid transparent;
+  transition: border-color var(--transition-fast),
+              background-color var(--transition-fast);
+}
+
+.contradiction-badge:focus-visible {
+  border-color: var(--color-focus);
+}
+
+/* Ensure color contrast for badges */
+.badge-high {
+  background-color: var(--badge-high-severity);
+  color: var(--color-text-inverted);
+  /* WCAG AA: 4.5:1 contrast ratio */
+}
+
+.badge-medium {
+  background-color: var(--badge-medium-severity);
+  color: var(--color-text-primary);
+  /* WCAG AA: 4.5:1 contrast ratio */
+}
+
+.badge-low {
+  background-color: var(--badge-low-severity);
+  color: var(--color-text-inverted);
+  /* WCAG AA: 4.5:1 contrast ratio */
+}
+
+/* Honor prefers-reduced-motion for badge animations */
+@media (prefers-reduced-motion: reduce) {
+  .contradiction-badge {
+    transition: none !important;
+  }
+  
+  .badge-tooltip {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ============================================================================
+   CompareCard A11y
+   ============================================================================ */
+
+.compare-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  background: var(--color-background);
+  color: var(--color-text-primary);
+}
+
+.compare-card button {
+  min-height: var(--min-touch-target);
+  transition: background-color var(--transition-fast),
+              transform var(--transition-fast);
+}
+
+.compare-card button:focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Ensure evidence cards have sufficient contrast */
+.evidence-card-internal {
+  border-left: 4px solid var(--color-success);
+  /* WCAG AA compliant */
+}
+
+.evidence-card-external {
+  border-left: 4px solid var(--color-info);
+  /* WCAG AA compliant */
+}
+
+/* Honor prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .compare-card button {
+    transition: none !important;
+    transform: none !important;
+  }
+  
+  .compare-loading {
+    animation: none !important;
+  }
+}
+
+/* ============================================================================
+   Toast Notifications A11y (for Hypothesis/AURA buttons)
+   ============================================================================ */
+
+.toast {
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-lg);
+  background: var(--color-background);
+  border: 2px solid var(--color-border);
+  color: var(--color-text-primary);
+  animation: toast-slide-in var(--animation-duration-base) ease-out;
+}
+
+.toast-success {
+  border-left: 4px solid var(--color-success);
+}
+
+.toast-info {
+  border-left: 4px solid var(--color-info);
+}
+
+.toast-error {
+  border-left: 4px solid var(--color-danger);
+}
+
+/* Honor prefers-reduced-motion for toasts */
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none !important;
+  }
+  
+  @keyframes toast-slide-in {
+    from, to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+}
+
+/* Ensure toasts are keyboard accessible */
+.toast:focus-within {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ============================================================================
+   Modal A11y (for Hypothesis/AURA buttons)
+   ============================================================================ */
+
+.modal-overlay {
+  background: rgba(0, 0, 0, 0.5);
+  animation: modal-fade-in var(--animation-duration-base) ease-out;
+}
+
+.modal-content {
+  border-radius: var(--border-radius-xl);
+  background: var(--color-background);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-xl);
+  animation: modal-slide-up var(--animation-duration-base) ease-out;
+}
+
+/* Honor prefers-reduced-motion for modals */
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay,
+  .modal-content {
+    animation: none !important;
+  }
+  
+  @keyframes modal-fade-in {
+    from, to {
+      opacity: 1;
+    }
+  }
+  
+  @keyframes modal-slide-up {
+    from, to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* Trap focus within modal */
+.modal-content:focus {
+  outline: none;
+}
+
+.modal-content button:focus-visible,
+.modal-content input:focus-visible,
+.modal-content select:focus-visible,
+.modal-content textarea:focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ============================================================================
+   AnswerEvidence A11y
+   ============================================================================ */
+
+.evidence-anchor {
+  background: var(--evidence-anchor-bg);
+  border-radius: var(--border-radius-sm);
+  transition: background var(--transition-base);
+  cursor: pointer;
+}
+
+.evidence-anchor:hover {
+  background: var(--evidence-anchor-hover);
+}
+
+.evidence-anchor:focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.evidence-anchor.evidence-highlight-active {
+  background: var(--evidence-highlight);
+  animation: evidence-highlight var(--animation-duration-slow) ease-in-out;
+}
+
+.contradiction-marker {
+  min-height: 24px;
+  min-width: 24px;
+  transition: transform var(--transition-base);
+}
+
+.contradiction-marker:focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Honor prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .evidence-anchor {
+    transition: none !important;
+  }
+  
+  .evidence-anchor.evidence-highlight-active {
+    animation: none !important;
+    background: var(--evidence-highlight);
+  }
+  
+  .contradiction-marker {
+    transition: none !important;
+    transform: none !important;
+  }
+  
+  @keyframes evidence-highlight {
+    from, to {
+      background: var(--evidence-highlight);
+      box-shadow: none;
+    }
+  }
+}
+
+/* ============================================================================
+   Keyboard Navigation Enhancement
+   ============================================================================ */
+
+/* Skip to main content link */
+.skip-to-main {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+  padding: var(--spacing-md);
+  background: var(--color-primary);
+  color: var(--color-text-inverted);
+  text-decoration: none;
+  border-radius: var(--border-radius-md);
+}
+
+.skip-to-main:focus {
+  left: var(--spacing-md);
+  top: var(--spacing-md);
+}
+
+/* Improve tab order visibility */
+*:focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ============================================================================
+   High Contrast Mode
+   ============================================================================ */
+
+@media (prefers-contrast: high) {
+  .process-ledger,
+  .contradiction-badge,
+  .compare-card,
+  .toast,
+  .modal-content,
+  .evidence-anchor {
+    border-width: 2px;
+    border-color: currentColor;
+  }
+  
+  button,
+  .button {
+    border: 2px solid currentColor;
+  }
+  
+  /* Increase focus ring thickness */
+  :root {
+    --focus-ring-width: 4px;
+  }
+}
+
+/* ============================================================================
+   Print Accessibility
+   ============================================================================ */
+
+@media print {
+  /* Ensure focus indicators don't show in print */
+  *:focus,
+  *:focus-visible {
+    outline: none !important;
+  }
+  
+  /* Hide interactive elements */
+  .toast,
+  .modal-overlay,
+  button:not(.print-visible) {
+    display: none !important;
+  }
+  
+  /* Ensure evidence anchors are visible */
+  .evidence-anchor {
+    background: none;
+    border-bottom: 1px solid black;
+  }
+}
+
+/* ============================================================================
+   Loading States A11y
+   ============================================================================ */
+
+.loading-spinner {
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  animation: spinner-spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner {
+    animation: spinner-spin 3s linear infinite;
+    /* Slower animation instead of none for loading indicators */
+  }
+}
+
+@keyframes spinner-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Screen reader only text for loading states */
+.loading-text {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}

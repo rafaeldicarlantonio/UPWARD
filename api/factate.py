@@ -62,6 +62,11 @@ from core.factare.service import (
 from core.factare.compare_internal import RetrievalCandidate
 from core.policy import can_access_factare
 from feature_flags import get_feature_flag
+from core.metrics import (
+    ExternalCompareMetrics,
+    audit_external_compare_denial,
+    audit_external_compare_timeout
+)
 
 # Create router
 router = APIRouter(prefix="/factate", tags=["factate"])
@@ -109,11 +114,17 @@ class TimingsData(BaseModel):
     total_ms: float
     redaction_ms: float = 0.0
 
+class SourcesData(BaseModel):
+    """Source counts in response."""
+    internal: int = Field(ge=0, description="Number of internal sources used")
+    external: int = Field(ge=0, description="Number of external sources used")
+
 class CompareResponse(BaseModel):
     """Response model for factare comparison."""
     compare_summary: Dict[str, Any]
     contradictions: List[ContradictionData]
     used_external: bool
+    sources: SourcesData
     timings: TimingsData
     metadata: Dict[str, Any]
 
@@ -172,6 +183,9 @@ async def compare(
     """
     start_time = time.time()
     
+    # Extract user ID from request for audit logging
+    user_id = http_request.headers.get('X-User-ID', None)
+    
     try:
         # Check if factare is enabled
         if not get_feature_flag('factare.enabled'):
@@ -210,18 +224,39 @@ async def compare(
             enable_redaction=request.options.enable_redaction
         )
         
+        # Set policy gauges for monitoring
+        ExternalCompareMetrics.set_policy_max_sources(options.max_external_snippets)
+        ExternalCompareMetrics.set_policy_timeout(int(options.timeout_seconds * 1000))
+        
         # Use user roles from request if provided, otherwise use extracted roles
         final_user_roles = request.user_roles if request.user_roles else user_roles
         
+        # Check if external comparison is requested and allowed
+        wants_external = request.options.allow_external and len(request.external_urls) > 0
+        external_allowed = True  # Will be determined by service
+        
+        if wants_external:
+            # Record external compare request metrics
+            # The actual allow/deny will be determined by the service
+            ExternalCompareMetrics.record_request(allowed=True, user_roles=final_user_roles)
+        
         # Perform comparison
+        comparison_start = time.time()
         service = get_factare_service()
-        result = await service.compare(
-            query=request.query,
-            retrieval_candidates=retrieval_candidates,
-            external_urls=request.external_urls,
-            user_roles=final_user_roles,
-            options=options
-        )
+        try:
+            result = await service.compare(
+                query=request.query,
+                retrieval_candidates=retrieval_candidates,
+                external_urls=request.external_urls,
+                user_roles=final_user_roles,
+                options=options
+            )
+            comparison_duration_ms = (time.time() - comparison_start) * 1000
+            comparison_success = True
+        except Exception as e:
+            comparison_duration_ms = (time.time() - comparison_start) * 1000
+            comparison_success = False
+            raise
         
         # Convert contradictions to response format
         contradictions = [
@@ -250,15 +285,73 @@ async def compare(
         # Add processing time to metadata
         result.metadata['api_processing_ms'] = (time.time() - start_time) * 1000
         
+        # Calculate source counts
+        internal_count = len(retrieval_candidates)
+        external_count = 0
+        if result.used_external and 'external_sources' in compare_summary_dict:
+            external_sources = compare_summary_dict.get('external_sources', {})
+            external_items = external_sources.get('items', [])
+            external_count = len(external_items)
+        
+        sources = SourcesData(
+            internal=internal_count,
+            external=external_count
+        )
+        
+        # Record comparison metrics
+        ExternalCompareMetrics.record_comparison(
+            duration_ms=comparison_duration_ms,
+            internal_count=internal_count,
+            external_count=external_count,
+            used_external=result.used_external,
+            success=comparison_success
+        )
+        
+        # Check if fallback occurred (wanted external but didn't get it)
+        if wants_external and not result.used_external:
+            ExternalCompareMetrics.record_fallback(reason="service_denied_or_failed")
+        
+        # Check for timeouts in metadata and record/audit them
+        if result.metadata.get('external_urls_provided', 0) > 0:
+            timeout_count = result.metadata.get('timeout_count', 0)
+            if timeout_count > 0:
+                ExternalCompareMetrics.record_timeout()
+                # Audit timeout if URL info available
+                for url in request.external_urls[:timeout_count]:
+                    audit_external_compare_timeout(
+                        url=url,
+                        timeout_ms=int(options.timeout_seconds * 1000),
+                        user_id=user_id,
+                        metadata={"query": request.query[:100]}  # First 100 chars
+                    )
+        
         return CompareResponse(
             compare_summary=compare_summary_dict,
             contradictions=contradictions,
             used_external=result.used_external,
+            sources=sources,
             timings=timings,
             metadata=result.metadata
         )
         
-    except HTTPException:
+    except HTTPException as e:
+        # Check if this is an access denial for external compare
+        if e.status_code == 403 and request.options.allow_external:
+            # Record denied external compare request
+            final_user_roles = request.user_roles if request.user_roles else user_roles
+            ExternalCompareMetrics.record_request(allowed=False, user_roles=final_user_roles)
+            
+            # Audit the denial
+            audit_external_compare_denial(
+                user_id=user_id,
+                roles=final_user_roles,
+                reason="insufficient_permissions",
+                metadata={
+                    "query": request.query[:100],  # First 100 chars
+                    "external_urls_count": len(request.external_urls)
+                }
+            )
+        
         # Re-raise HTTP exceptions
         raise
     except ValueError as e:
@@ -318,28 +411,8 @@ async def health_check():
         "timestamp": str(time.time())
     }
 
-# Error handlers
-@router.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions with proper error format."""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": exc.detail,
-            "code": str(exc.status_code),
-            "timestamp": str(time.time())
-        }
-    )
-
-@router.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """Handle general exceptions with proper error format."""
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": "Internal server error",
-            "detail": str(exc),
-            "code": "500",
-            "timestamp": str(time.time())
-        }
-    )
+# Note: Error handlers should be added at the app level, not router level
+# Example for app setup:
+# @app.exception_handler(HTTPException)
+# async def http_exception_handler(request: Request, exc: HTTPException):
+#     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})

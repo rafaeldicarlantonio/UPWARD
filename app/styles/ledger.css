@@ -1,0 +1,444 @@
+/**
+ * Process Ledger Styles
+ * 
+ * Styling for ProcessLedger and ProcessLine components.
+ */
+
+/* ============================================================================
+   Process Ledger Container
+   ============================================================================ */
+
+.process-ledger {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.process-ledger[data-expanded="true"] {
+  background: #ffffff;
+  border-color: #0066cc;
+}
+
+/* ============================================================================
+   Header
+   ============================================================================ */
+
+.process-ledger-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.process-ledger-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #212529;
+}
+
+.process-ledger-icon {
+  font-size: 18px;
+}
+
+.process-ledger-label {
+  font-size: 16px;
+}
+
+.process-ledger-duration {
+  font-size: 13px;
+  color: #6c757d;
+  font-weight: 400;
+}
+
+/* ============================================================================
+   Expand Button
+   ============================================================================ */
+
+.process-ledger-expand-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #e9ecef;
+  border: 1px solid #adb5bd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #495057;
+  transition: all 0.2s ease;
+}
+
+.process-ledger-expand-button:hover:not(:disabled) {
+  background: #dee2e6;
+  border-color: #6c757d;
+}
+
+.process-ledger-expand-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.process-ledger-arrow {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.process-ledger-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================================
+   Lines Container
+   ============================================================================ */
+
+.process-ledger-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ============================================================================
+   Process Line
+   ============================================================================ */
+
+.process-line {
+  background: #ffffff;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  padding: 8px 12px;
+  transition: all 0.2s ease;
+}
+
+.process-line:hover {
+  border-color: #adb5bd;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Line Main Row */
+.process-line-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.process-line-index {
+  min-width: 24px;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.process-line-status-icon {
+  font-size: 14px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.process-line-step {
+  flex: 1;
+  color: #212529;
+  font-weight: 500;
+}
+
+.process-line-duration {
+  color: #6c757d;
+  font-size: 12px;
+  font-family: 'Monaco', 'Courier New', monospace;
+}
+
+/* Status Colors */
+.process-line.status-success {
+  border-left: 3px solid #28a745;
+}
+
+.process-line.status-success .process-line-status-icon {
+  color: #28a745;
+}
+
+.process-line.status-error {
+  border-left: 3px solid #dc3545;
+}
+
+.process-line.status-error .process-line-status-icon {
+  color: #dc3545;
+}
+
+.process-line.status-skipped {
+  border-left: 3px solid #ffc107;
+}
+
+.process-line.status-skipped .process-line-status-icon {
+  color: #ffc107;
+}
+
+.process-line.status-default {
+  border-left: 3px solid #6c757d;
+}
+
+.process-line.status-default .process-line-status-icon {
+  color: #6c757d;
+}
+
+/* ============================================================================
+   Details Toggle
+   ============================================================================ */
+
+.process-line-details-toggle {
+  padding: 2px 8px;
+  background: #e9ecef;
+  border: 1px solid #adb5bd;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #495057;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.process-line-details-toggle:hover {
+  background: #dee2e6;
+  border-color: #6c757d;
+}
+
+/* ============================================================================
+   Details Section
+   ============================================================================ */
+
+.process-line-details {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.process-line-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.process-line-detail-label {
+  font-weight: 600;
+  color: #495057;
+  font-size: 13px;
+}
+
+.process-line-detail-value {
+  color: #212529;
+  padding-left: 8px;
+}
+
+.process-line-detail-code {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 8px;
+  margin: 0;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  color: #212529;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ============================================================================
+   Error Display
+   ============================================================================ */
+
+.process-ledger-error {
+  background: #f8d7da;
+  border: 1px solid #f5c2c7;
+  border-radius: 4px;
+  padding: 12px;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #842029;
+}
+
+.process-ledger-error-icon {
+  font-size: 16px;
+}
+
+.process-ledger-error-message {
+  flex: 1;
+  font-size: 13px;
+}
+
+.process-ledger-retry-button {
+  padding: 4px 12px;
+  background: #dc3545;
+  border: none;
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.2s ease;
+}
+
+.process-ledger-retry-button:hover {
+  background: #c82333;
+}
+
+/* ============================================================================
+   Footer
+   ============================================================================ */
+
+.process-ledger-footer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #dee2e6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #6c757d;
+}
+
+.process-ledger-footer-text {
+  font-weight: 500;
+}
+
+.process-ledger-footer-hint {
+  font-style: italic;
+  color: #0066cc;
+}
+
+/* ============================================================================
+   Expanded Indicator
+   ============================================================================ */
+
+.process-ledger-expanded-indicator {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #dee2e6;
+  text-align: center;
+  font-size: 12px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* ============================================================================
+   Responsive Adjustments
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .process-ledger {
+    padding: 12px;
+    font-size: 13px;
+  }
+  
+  .process-ledger-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .process-ledger-expand-button {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .process-line-main {
+    flex-wrap: wrap;
+  }
+  
+  .process-line-details-toggle {
+    margin-left: 0;
+  }
+}
+
+/* ============================================================================
+   Print Styles
+   ============================================================================ */
+
+@media print {
+  .process-ledger {
+    border: 1px solid #000;
+    page-break-inside: avoid;
+  }
+  
+  .process-ledger-expand-button,
+  .process-line-details-toggle,
+  .process-ledger-retry-button {
+    display: none;
+  }
+  
+  .process-line-details {
+    display: block !important;
+  }
+}
+
+/* ============================================================================
+   Dark Mode Support
+   ============================================================================ */
+
+@media (prefers-color-scheme: dark) {
+  .process-ledger {
+    background: #1a1a1a;
+    border-color: #333;
+    color: #e0e0e0;
+  }
+  
+  .process-ledger[data-expanded="true"] {
+    background: #242424;
+    border-color: #0099ff;
+  }
+  
+  .process-ledger-header {
+    border-bottom-color: #333;
+  }
+  
+  .process-ledger-title,
+  .process-line-step,
+  .process-line-detail-value {
+    color: #e0e0e0;
+  }
+  
+  .process-line {
+    background: #242424;
+    border-color: #333;
+  }
+  
+  .process-line:hover {
+    border-color: #555;
+    box-shadow: 0 2px 4px rgba(255, 255, 255, 0.05);
+  }
+  
+  .process-line-detail-code {
+    background: #1a1a1a;
+    border-color: #333;
+    color: #e0e0e0;
+  }
+  
+  .process-ledger-expand-button,
+  .process-line-details-toggle {
+    background: #333;
+    border-color: #555;
+    color: #e0e0e0;
+  }
+  
+  .process-ledger-expand-button:hover:not(:disabled),
+  .process-line-details-toggle:hover {
+    background: #444;
+    border-color: #666;
+  }
+}

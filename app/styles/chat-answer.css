@@ -1,0 +1,503 @@
+/**
+ * ChatAnswer View Styles
+ * 
+ * Styles for the integrated chat answer view with stable layout,
+ * skeleton loaders, and responsive design.
+ */
+
+/* ============================================================================
+   Chat Answer Container
+   ============================================================================ */
+
+.chat-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  margin-bottom: 24px;
+}
+
+/* ============================================================================
+   Answer Header
+   ============================================================================ */
+
+.chat-answer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #dee2e6;
+  gap: 16px;
+}
+
+.answer-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #212529;
+  flex-shrink: 0;
+}
+
+/* ============================================================================
+   Answer Content
+   ============================================================================ */
+
+.chat-answer-content {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #212529;
+}
+
+/* Style for evidence anchors in content */
+.chat-answer-content [id^="evidence-"] {
+  padding: 2px 4px;
+  background: #fff3cd;
+  border-radius: 3px;
+  transition: background 0.3s ease;
+}
+
+.chat-answer-content [id^="evidence-"]:target {
+  background: #ffc107;
+  animation: evidence-highlight 2s ease-in-out;
+}
+
+@keyframes evidence-highlight {
+  0% { background: #ffc107; }
+  100% { background: #fff3cd; }
+}
+
+/* Content styling */
+.chat-answer-content p {
+  margin: 0 0 16px 0;
+}
+
+.chat-answer-content p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-answer-content ul,
+.chat-answer-content ol {
+  margin: 0 0 16px 0;
+  padding-left: 24px;
+}
+
+.chat-answer-content li {
+  margin-bottom: 8px;
+}
+
+.chat-answer-content code {
+  background: #f8f9fa;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+}
+
+.chat-answer-content pre {
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0 0 16px 0;
+}
+
+.chat-answer-content pre code {
+  background: none;
+  padding: 0;
+}
+
+/* ============================================================================
+   Compare Section
+   ============================================================================ */
+
+.chat-answer-compare-section {
+  /* Reserve space for compare card to prevent layout shift */
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-answer[data-has-compare="false"] .chat-answer-compare-section {
+  /* Remove reserved space if no compare data expected */
+  min-height: 0;
+}
+
+/* ============================================================================
+   Ledger Section
+   ============================================================================ */
+
+.chat-answer-ledger-section {
+  /* No reserved height - ledger is always at the bottom */
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================================================
+   Skeleton Loaders
+   ============================================================================ */
+
+.skeleton {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.skeleton-bar {
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 25%,
+    #e0e0e0 50%,
+    #f0f0f0 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* CompareCard Skeleton */
+.compare-card-skeleton {
+  background: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.compare-card-skeleton .skeleton-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.compare-card-skeleton .skeleton-title {
+  width: 150px;
+  height: 24px;
+}
+
+.compare-card-skeleton .skeleton-button {
+  width: 140px;
+  height: 38px;
+}
+
+.compare-card-skeleton .skeleton-stances {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.compare-card-skeleton .skeleton-stance {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compare-card-skeleton .skeleton-label {
+  width: 80px;
+  height: 16px;
+}
+
+.compare-card-skeleton .skeleton-content {
+  width: 100%;
+  height: 60px;
+}
+
+.compare-card-skeleton .skeleton-divider {
+  width: 60px;
+  height: 80px;
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 25%,
+    #e0e0e0 50%,
+    #f0f0f0 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+  align-self: center;
+}
+
+.compare-card-skeleton .skeleton-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.compare-card-skeleton .skeleton-section {
+  width: 180px;
+  height: 20px;
+}
+
+.compare-card-skeleton .skeleton-item {
+  width: 100%;
+  height: 50px;
+}
+
+/* ProcessLedger Skeleton */
+.process-ledger-skeleton {
+  background: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.process-ledger-skeleton .skeleton-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.process-ledger-skeleton .skeleton-title {
+  width: 200px;
+  height: 20px;
+}
+
+.process-ledger-skeleton .skeleton-expand {
+  width: 80px;
+  height: 32px;
+}
+
+.process-ledger-skeleton .skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.process-ledger-skeleton .skeleton-line {
+  width: 100%;
+  height: 40px;
+}
+
+/* ============================================================================
+   Responsive Design
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .chat-answer {
+    padding: 16px;
+    gap: 20px;
+  }
+  
+  .chat-answer-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .chat-answer-content {
+    font-size: 15px;
+  }
+  
+  .chat-answer-compare-section {
+    min-height: 250px;
+  }
+  
+  /* Mobile skeleton adjustments */
+  .compare-card-skeleton .skeleton-stances {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .compare-card-skeleton .skeleton-divider {
+    width: 80px;
+    height: 40px;
+    align-self: flex-start;
+    transform: rotate(90deg);
+  }
+}
+
+/* ============================================================================
+   Dark Mode
+   ============================================================================ */
+
+@media (prefers-color-scheme: dark) {
+  .chat-answer {
+    background: #1a1a1a;
+    border-color: #333;
+    color: #e0e0e0;
+  }
+  
+  .chat-answer-header {
+    border-bottom-color: #333;
+  }
+  
+  .answer-title {
+    color: #e0e0e0;
+  }
+  
+  .chat-answer-content {
+    color: #e0e0e0;
+  }
+  
+  .chat-answer-content [id^="evidence-"] {
+    background: #3a3a00;
+  }
+  
+  .chat-answer-content [id^="evidence-"]:target {
+    background: #5a5a00;
+  }
+  
+  @keyframes evidence-highlight {
+    0% { background: #5a5a00; }
+    100% { background: #3a3a00; }
+  }
+  
+  .chat-answer-content code {
+    background: #242424;
+  }
+  
+  .chat-answer-content pre {
+    background: #242424;
+  }
+  
+  /* Dark mode skeletons */
+  .skeleton-bar {
+    background: linear-gradient(
+      90deg,
+      #2a2a2a 25%,
+      #3a3a3a 50%,
+      #2a2a2a 75%
+    );
+    background-size: 200% 100%;
+  }
+  
+  .compare-card-skeleton {
+    background: #1a1a1a;
+    border-color: #333;
+  }
+  
+  .compare-card-skeleton .skeleton-stances {
+    background: #242424;
+  }
+  
+  .compare-card-skeleton .skeleton-divider {
+    background: linear-gradient(
+      90deg,
+      #2a2a2a 25%,
+      #3a3a3a 50%,
+      #2a2a2a 75%
+    );
+    background-size: 200% 100%;
+  }
+  
+  .process-ledger-skeleton {
+    background: #1a1a1a;
+    border-color: #333;
+  }
+  
+  .process-ledger-skeleton .skeleton-header {
+    border-bottom-color: #333;
+  }
+}
+
+/* ============================================================================
+   Print Styles
+   ============================================================================ */
+
+@media print {
+  .chat-answer {
+    border: 1px solid #000;
+    box-shadow: none;
+    page-break-inside: avoid;
+  }
+  
+  /* Hide skeletons when printing */
+  .compare-card-skeleton,
+  .process-ledger-skeleton {
+    display: none;
+  }
+  
+  .chat-answer-header {
+    border-bottom: 2px solid #000;
+  }
+}
+
+/* ============================================================================
+   Accessibility
+   ============================================================================ */
+
+@media (prefers-contrast: high) {
+  .chat-answer {
+    border-width: 2px;
+  }
+  
+  .chat-answer-header {
+    border-bottom-width: 3px;
+  }
+  
+  .skeleton-bar {
+    background: #ddd;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .skeleton-bar,
+  .compare-card-skeleton .skeleton-divider {
+    animation: none;
+  }
+  
+  .chat-answer-content [id^="evidence-"]:target {
+    animation: none;
+  }
+}
+
+/* ============================================================================
+   Loading States
+   ============================================================================ */
+
+/* Fade in animation for components when they load */
+.chat-answer-compare-section > *,
+.chat-answer-ledger-section > * {
+  animation: fade-in 0.3s ease-in;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* But disable for reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .chat-answer-compare-section > *,
+  .chat-answer-ledger-section > * {
+    animation: none;
+  }
+}

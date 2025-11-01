@@ -1,0 +1,460 @@
+/**
+ * Badge Styles
+ * 
+ * Styling for ContradictionBadge and other badge components.
+ */
+
+/* ============================================================================
+   Contradiction Badge Container
+   ============================================================================ */
+
+.contradiction-badge-container {
+  position: relative;
+  display: inline-block;
+}
+
+/* ============================================================================
+   Badge Button
+   ============================================================================ */
+
+.contradiction-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.contradiction-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.contradiction-badge:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.contradiction-badge:focus {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+}
+
+/* Badge Colors */
+.contradiction-badge.badge-success {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.contradiction-badge.badge-info {
+  background: #d1ecf1;
+  color: #0c5460;
+  border: 1px solid #bee5eb;
+}
+
+.contradiction-badge.badge-warning {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+}
+
+.contradiction-badge.badge-danger {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+/* Badge Icon */
+.badge-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.badge-label {
+  line-height: 1;
+}
+
+.badge-label strong {
+  font-weight: 600;
+}
+
+/* ============================================================================
+   Tooltip
+   ============================================================================ */
+
+.contradiction-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 320px;
+  max-width: 480px;
+  background: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  animation: tooltipFadeIn 0.2s ease;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Tooltip Header */
+.tooltip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #dee2e6;
+  background: #f8f9fa;
+  border-radius: 8px 8px 0 0;
+}
+
+.tooltip-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #212529;
+}
+
+.tooltip-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.tooltip-close:hover {
+  background: #dee2e6;
+  color: #212529;
+}
+
+/* Tooltip Content */
+.tooltip-content {
+  padding: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Contradiction List */
+.contradiction-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.contradiction-item {
+  padding: 12px;
+  background: #f8f9fa;
+  border-left: 3px solid #6c757d;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.contradiction-item:hover {
+  background: #e9ecef;
+}
+
+/* Severity-specific border colors */
+.contradiction-item.severity-low {
+  border-left-color: #17a2b8;
+}
+
+.contradiction-item.severity-medium {
+  border-left-color: #ffc107;
+}
+
+.contradiction-item.severity-high {
+  border-left-color: #dc3545;
+}
+
+/* Contradiction Subject */
+.contradiction-subject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #212529;
+}
+
+.evidence-link {
+  color: #0066cc;
+  text-decoration: none;
+  transition: color 0.2s ease;
+  flex: 1;
+}
+
+.evidence-link:hover {
+  color: #0052a3;
+  text-decoration: underline;
+}
+
+.evidence-link:focus {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Severity Badge */
+.severity-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.severity-badge.severity-low {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.severity-badge.severity-medium {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.severity-badge.severity-high {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+/* Contradiction Description */
+.contradiction-description {
+  font-size: 13px;
+  color: #495057;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+/* Contradiction Source */
+.contradiction-source {
+  font-size: 12px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* No Contradictions State */
+.no-contradictions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  justify-content: center;
+  color: #28a745;
+  font-weight: 500;
+}
+
+.success-icon {
+  font-size: 20px;
+}
+
+/* ============================================================================
+   Evidence Highlight Effect
+   ============================================================================ */
+
+.evidence-highlight {
+  animation: evidenceHighlight 2s ease;
+  scroll-margin-top: 80px; /* Adjust based on header height */
+}
+
+@keyframes evidenceHighlight {
+  0%, 100% {
+    background: transparent;
+  }
+  10%, 90% {
+    background: #fff3cd;
+  }
+}
+
+/* ============================================================================
+   Responsive Adjustments
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .contradiction-tooltip {
+    left: auto;
+    right: 0;
+    min-width: 280px;
+    max-width: calc(100vw - 32px);
+  }
+  
+  .contradiction-badge {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+}
+
+/* ============================================================================
+   Dark Mode Support
+   ============================================================================ */
+
+@media (prefers-color-scheme: dark) {
+  .contradiction-badge.badge-success {
+    background: #1e4620;
+    color: #a3d9a5;
+    border-color: #2d5a2f;
+  }
+  
+  .contradiction-badge.badge-info {
+    background: #0f3540;
+    color: #7dd3fc;
+    border-color: #1a4d5a;
+  }
+  
+  .contradiction-badge.badge-warning {
+    background: #4a3c1a;
+    color: #fde68a;
+    border-color: #5a4a24;
+  }
+  
+  .contradiction-badge.badge-danger {
+    background: #4a1a1f;
+    color: #fca5a5;
+    border-color: #5a242a;
+  }
+  
+  .contradiction-tooltip {
+    background: #1a1a1a;
+    border-color: #333;
+  }
+  
+  .tooltip-header {
+    background: #242424;
+    border-bottom-color: #333;
+  }
+  
+  .tooltip-title {
+    color: #e0e0e0;
+  }
+  
+  .tooltip-close {
+    color: #999;
+  }
+  
+  .tooltip-close:hover {
+    background: #333;
+    color: #e0e0e0;
+  }
+  
+  .contradiction-item {
+    background: #242424;
+    color: #e0e0e0;
+  }
+  
+  .contradiction-item:hover {
+    background: #2a2a2a;
+  }
+  
+  .contradiction-subject {
+    color: #e0e0e0;
+  }
+  
+  .evidence-link {
+    color: #5eb3f6;
+  }
+  
+  .evidence-link:hover {
+    color: #7ec8ff;
+  }
+  
+  .contradiction-description {
+    color: #b0b0b0;
+  }
+  
+  .contradiction-source {
+    color: #888;
+  }
+}
+
+/* ============================================================================
+   Print Styles
+   ============================================================================ */
+
+@media print {
+  .contradiction-badge {
+    border: 1px solid #000;
+    box-shadow: none;
+  }
+  
+  .contradiction-tooltip {
+    display: block !important;
+    position: static;
+    box-shadow: none;
+    border: 1px solid #000;
+    page-break-inside: avoid;
+  }
+  
+  .tooltip-close {
+    display: none;
+  }
+  
+  .evidence-link {
+    color: #000;
+    text-decoration: underline;
+  }
+}
+
+/* ============================================================================
+   Accessibility Enhancements
+   ============================================================================ */
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .contradiction-badge {
+    border-width: 2px;
+  }
+  
+  .contradiction-tooltip {
+    border-width: 2px;
+  }
+  
+  .evidence-link {
+    text-decoration: underline;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .contradiction-badge,
+  .contradiction-tooltip,
+  .evidence-highlight {
+    animation: none;
+    transition: none;
+  }
+  
+  .contradiction-badge:hover {
+    transform: none;
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "external_008",
+  "query": "Should I use REST or GraphQL for my API?",
+  "category": "external_compare",
+  "expected_parity": false,
+  "expected_policy": "prefer_internal",
+  "external_scenario": "contradictory",
+  "internal_sources": ["internal_api_007"],
+  "external_source": "ext_graphql",
+  "rationale": "External promotes GraphQL over REST, contradicting internal REST docs. Policy should prefer_internal when external conflicts."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "external_007",
+  "query": "What are Git branching best practices?",
+  "category": "external_compare",
+  "expected_parity": false,
+  "expected_policy": "abstain",
+  "external_scenario": "contradictory",
+  "internal_sources": ["internal_git_006"],
+  "external_source": "ext_git_practices",
+  "rationale": "External contradicts internal branching guidance. Policy should abstain when sources conflict significantly."
+}

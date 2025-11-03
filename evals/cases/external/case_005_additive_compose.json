@@ -1,0 +1,11 @@
+{
+  "id": "external_005",
+  "query": "What is Docker Compose used for?",
+  "category": "external_compare",
+  "expected_parity": false,
+  "expected_policy": "prefer_internal",
+  "external_scenario": "additive",
+  "internal_sources": ["internal_docker_004"],
+  "external_source": "ext_docker_compose",
+  "rationale": "External adds Docker Compose specifics not in internal docs. Policy should apply prefer_internal tiebreak for confidence."
+}

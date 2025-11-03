@@ -1,0 +1,11 @@
+{
+  "id": "external_009",
+  "query": "What programming languages should I learn?",
+  "category": "external_compare",
+  "expected_parity": true,
+  "expected_policy": "reject",
+  "external_scenario": "low_quality",
+  "internal_sources": ["internal_python_001"],
+  "external_source": "ext_spam_001",
+  "rationale": "External is spam/low-quality. Should be rejected, maintaining parity with external OFF mode."
+}

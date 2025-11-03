@@ -56,6 +56,15 @@ class EvalResult:
     has_badge: bool = False
     badge_data: Dict[str, Any] = field(default_factory=dict)
     contradiction_completeness: float = 0.0
+    
+    # External compare metrics
+    external_mode: str = "off"  # "off" or "on"
+    external_used: bool = False
+    external_sources: List[str] = field(default_factory=list)
+    external_ingested: bool = False
+    decision_tiebreak: Optional[str] = None
+    expected_parity: Optional[bool] = None
+    expected_policy: Optional[str] = None
 
 @dataclass
 class EvalSummary:
@@ -285,6 +294,44 @@ class EvalRunner:
                         f"Packing latency {packing_latency_ms:.1f}ms exceeds {max_packing_latency}ms"
                     )
             
+            # External compare validation
+            expected_parity = case.get("expected_parity")
+            expected_policy = case.get("expected_policy")
+            external_used = data.get("external_used", False)
+            external_sources = data.get("external_considered", [])
+            decision_data = data.get("decision", {})
+            decision_tiebreak = decision_data.get("tiebreak")
+            
+            # Check for external ingestion (external source IDs in citations)
+            external_ingested = False
+            if citations:
+                citation_ids = [
+                    c.get("source_id", "") if isinstance(c, dict) else str(c)
+                    for c in citations
+                ]
+                external_ingested = any(
+                    "ext_" in cid or "external" in cid.lower()
+                    for cid in citation_ids
+                )
+            
+            if category == "external_compare":
+                # For external compare cases, validate based on mode
+                external_mode = pipeline if pipeline in ["off", "on"] else "off"
+                
+                # Check no-persistence (zero ingestion)
+                if external_ingested:
+                    passed = False
+                    error_parts.append("External text ingestion detected")
+                
+                # Check policy compliance for non-parity cases
+                if not expected_parity and expected_policy and decision_tiebreak:
+                    if decision_tiebreak != expected_policy:
+                        passed = False
+                        error_parts.append(
+                            f"Policy violation: expected {expected_policy}, "
+                            f"got {decision_tiebreak}"
+                        )
+            
             # Check must_include terms
             if must_include:
                 missing_terms = [term for term in must_include if term.lower() not in answer]
@@ -384,6 +431,13 @@ class EvalRunner:
                 has_badge=has_badge,
                 badge_data=badge_data,
                 contradiction_completeness=contradiction_completeness,
+                external_mode=pipeline if pipeline in ["off", "on"] else "off",
+                external_used=external_used,
+                external_sources=external_sources,
+                external_ingested=external_ingested,
+                decision_tiebreak=decision_tiebreak,
+                expected_parity=expected_parity,
+                expected_policy=expected_policy,
                 details={
                     "answer": answer[:200] + "..." if len(answer) > 200 else answer,
                     "citations": citations,
@@ -449,6 +503,13 @@ class EvalRunner:
                 num_contradictions = len(result.actual_contradictions)
                 has_badge_str = "?" if result.has_badge else "?"
                 print(f"    Contradictions: {num_contradictions}, Badge: {has_badge_str}, Completeness: {result.contradiction_completeness:.2f}")
+            
+            # Print external compare metrics
+            if case.get("category") == "external_compare":
+                ext_used_str = "✓" if result.external_used else "✗"
+                ingested_str = "❌" if result.external_ingested else "✓"
+                policy_str = result.decision_tiebreak or "N/A"
+                print(f"    External: {ext_used_str}, Policy: {policy_str}, No-Ingestion: {ingested_str}")
         
         return results
     

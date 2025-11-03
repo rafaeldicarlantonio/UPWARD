@@ -2,14 +2,14 @@
 """
 Latency budget gates for evaluation suites.
 
-Defines performance budgets for different operations and provides
-helpers to check if results meet the budgets.
+Defines budget thresholds and helpers to validate latencies across different
+operations: retrieval, packing, internal compare, external compare.
 
 Budgets:
 - Retrieval p95 ≤ 500ms
 - Packing p95 ≤ 550ms
 - Internal compare p95 ≤ 400ms
-- External compare p95 ≤ 2000ms (with timeout handling)
+- External compare p95 ≤ 2000ms (with timeouts)
 """
 
 import statistics
@@ -18,405 +18,487 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 
-class OperationType(Enum):
-    """Types of operations with latency budgets."""
-    RETRIEVAL = "retrieval"
-    PACKING = "packing"
-    INTERNAL_COMPARE = "internal_compare"
-    EXTERNAL_COMPARE = "external_compare"
-    SCORING = "scoring"
-    TOTAL = "total"
-
-
-@dataclass
-class LatencyBudget:
-    """Latency budget definition."""
-    operation: OperationType
-    p50_ms: Optional[float] = None
-    p95_ms: Optional[float] = None
-    p99_ms: Optional[float] = None
-    max_ms: Optional[float] = None
-    description: str = ""
-
-
-# Standard latency budgets
-STANDARD_BUDGETS = {
-    OperationType.RETRIEVAL: LatencyBudget(
-        operation=OperationType.RETRIEVAL,
-        p95_ms=500.0,
-        description="Retrieval latency (DB query + ranking)"
-    ),
-    OperationType.PACKING: LatencyBudget(
-        operation=OperationType.PACKING,
-        p95_ms=550.0,
-        description="Packing latency (answer generation + formatting)"
-    ),
-    OperationType.INTERNAL_COMPARE: LatencyBudget(
-        operation=OperationType.INTERNAL_COMPARE,
-        p95_ms=400.0,
-        description="Internal compare latency"
-    ),
-    OperationType.EXTERNAL_COMPARE: LatencyBudget(
-        operation=OperationType.EXTERNAL_COMPARE,
-        p95_ms=2000.0,
-        max_ms=3000.0,
-        description="External compare latency (with timeout)"
-    ),
-    OperationType.SCORING: LatencyBudget(
-        operation=OperationType.SCORING,
-        p95_ms=200.0,
-        description="Scoring latency (Pareto gate)"
-    ),
-}
-
-
-@dataclass
-class LatencyMetrics:
-    """Computed latency metrics."""
-    count: int
-    mean_ms: float
-    median_ms: float
-    p50_ms: float
-    p90_ms: float
-    p95_ms: float
-    p99_ms: float
-    min_ms: float
-    max_ms: float
-    std_dev_ms: float = 0.0
+class LatencyBudget(Enum):
+    """Latency budget thresholds in milliseconds."""
+    RETRIEVAL_P95 = 500
+    PACKING_P95 = 550
+    INTERNAL_COMPARE_P95 = 400
+    EXTERNAL_COMPARE_P95 = 2000
     
-    @classmethod
-    def from_latencies(cls, latencies: List[float]) -> 'LatencyMetrics':
-        """Compute metrics from list of latencies."""
-        if not latencies:
-            return cls(
-                count=0,
-                mean_ms=0.0,
-                median_ms=0.0,
-                p50_ms=0.0,
-                p90_ms=0.0,
-                p95_ms=0.0,
-                p99_ms=0.0,
-                min_ms=0.0,
-                max_ms=0.0,
-                std_dev_ms=0.0
-            )
-        
-        sorted_latencies = sorted(latencies)
-        n = len(sorted_latencies)
-        
-        # Compute percentiles
-        p50 = compute_percentile(sorted_latencies, 50)
-        p90 = compute_percentile(sorted_latencies, 90)
-        p95 = compute_percentile(sorted_latencies, 95)
-        p99 = compute_percentile(sorted_latencies, 99)
-        
-        return cls(
-            count=n,
-            mean_ms=statistics.mean(latencies),
-            median_ms=statistics.median(latencies),
-            p50_ms=p50,
-            p90_ms=p90,
-            p95_ms=p95,
-            p99_ms=p99,
-            min_ms=min(latencies),
-            max_ms=max(latencies),
-            std_dev_ms=statistics.stdev(latencies) if n > 1 else 0.0
+    # Additional thresholds
+    RETRIEVAL_P99 = 800
+    PACKING_P99 = 800
+    TOTAL_P95 = 1500  # Total end-to-end latency
+
+
+@dataclass
+class LatencyViolation:
+    """Represents a latency budget violation."""
+    operation: str
+    metric: str  # e.g., "p95", "p99", "max"
+    measured: float  # measured latency in ms
+    budget: float  # budget threshold in ms
+    excess: float  # amount over budget
+    count: int  # number of samples
+    
+    def __str__(self) -> str:
+        """Human-readable violation message."""
+        return (
+            f"{self.operation} {self.metric} latency {self.measured:.1f}ms "
+            f"exceeds budget {self.budget:.0f}ms by {self.excess:.1f}ms "
+            f"({self.count} samples)"
         )
 
 
 @dataclass
 class LatencyGateResult:
-    """Result of latency gate check."""
-    operation: OperationType
+    """Result of latency gate validation."""
     passed: bool
-    budget: LatencyBudget
-    metrics: LatencyMetrics
-    violations: List[str] = field(default_factory=list)
-    message: str = ""
+    violations: List[LatencyViolation] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    
+    def __str__(self) -> str:
+        """Human-readable result summary."""
+        if self.passed:
+            return "✅ All latency budgets passed"
+        else:
+            lines = ["❌ Latency budget violations:"]
+            for violation in self.violations:
+                lines.append(f"  • {violation}")
+            return "\n".join(lines)
 
 
-def compute_percentile(sorted_values: List[float], percentile: float) -> float:
+class LatencyGate:
     """
-    Compute percentile from sorted values.
+    Latency budget gate for validating operation latencies.
     
-    Args:
-        sorted_values: List of values in sorted order
-        percentile: Percentile to compute (0-100)
-    
-    Returns:
-        Percentile value
+    Computes percentiles and checks against configured budgets.
     """
-    if not sorted_values:
-        return 0.0
     
-    if len(sorted_values) == 1:
-        return sorted_values[0]
+    def __init__(self, budgets: Optional[Dict[str, float]] = None):
+        """
+        Initialize latency gate.
+        
+        Args:
+            budgets: Optional custom budget overrides (operation -> ms)
+        """
+        self.budgets = budgets or {}
+        self._default_budgets = {
+            "retrieval": LatencyBudget.RETRIEVAL_P95.value,
+            "packing": LatencyBudget.PACKING_P95.value,
+            "internal_compare": LatencyBudget.INTERNAL_COMPARE_P95.value,
+            "external_compare": LatencyBudget.EXTERNAL_COMPARE_P95.value,
+        }
     
-    # Linear interpolation method
-    n = len(sorted_values)
-    k = (n - 1) * (percentile / 100.0)
-    f = int(k)
-    c = k - f
+    def get_budget(self, operation: str) -> float:
+        """Get budget for operation (custom or default)."""
+        return self.budgets.get(operation, self._default_budgets.get(operation, 1000.0))
     
-    if f + 1 < n:
-        return sorted_values[f] + c * (sorted_values[f + 1] - sorted_values[f])
-    else:
-        return sorted_values[f]
+    def validate_retrieval(
+        self,
+        latencies: List[float],
+        budget: Optional[float] = None
+    ) -> LatencyGateResult:
+        """
+        Validate retrieval latencies against budget.
+        
+        Args:
+            latencies: List of retrieval latency measurements (ms)
+            budget: Optional budget override (default: 500ms p95)
+        
+        Returns:
+            LatencyGateResult with pass/fail and violations
+        """
+        return self._validate_operation(
+            operation="retrieval",
+            latencies=latencies,
+            budget=budget or self.get_budget("retrieval"),
+            percentile=95
+        )
+    
+    def validate_packing(
+        self,
+        latencies: List[float],
+        budget: Optional[float] = None
+    ) -> LatencyGateResult:
+        """
+        Validate packing latencies against budget.
+        
+        Args:
+            latencies: List of packing latency measurements (ms)
+            budget: Optional budget override (default: 550ms p95)
+        
+        Returns:
+            LatencyGateResult with pass/fail and violations
+        """
+        return self._validate_operation(
+            operation="packing",
+            latencies=latencies,
+            budget=budget or self.get_budget("packing"),
+            percentile=95
+        )
+    
+    def validate_internal_compare(
+        self,
+        latencies: List[float],
+        budget: Optional[float] = None
+    ) -> LatencyGateResult:
+        """
+        Validate internal compare latencies against budget.
+        
+        Args:
+            latencies: List of internal compare latency measurements (ms)
+            budget: Optional budget override (default: 400ms p95)
+        
+        Returns:
+            LatencyGateResult with pass/fail and violations
+        """
+        return self._validate_operation(
+            operation="internal_compare",
+            latencies=latencies,
+            budget=budget or self.get_budget("internal_compare"),
+            percentile=95
+        )
+    
+    def validate_external_compare(
+        self,
+        latencies: List[float],
+        budget: Optional[float] = None
+    ) -> LatencyGateResult:
+        """
+        Validate external compare latencies against budget.
+        
+        Args:
+            latencies: List of external compare latency measurements (ms)
+            budget: Optional budget override (default: 2000ms p95)
+        
+        Returns:
+            LatencyGateResult with pass/fail and violations
+        """
+        return self._validate_operation(
+            operation="external_compare",
+            latencies=latencies,
+            budget=budget or self.get_budget("external_compare"),
+            percentile=95
+        )
+    
+    def validate_all(
+        self,
+        retrieval_latencies: List[float],
+        packing_latencies: List[float],
+        internal_compare_latencies: Optional[List[float]] = None,
+        external_compare_latencies: Optional[List[float]] = None
+    ) -> LatencyGateResult:
+        """
+        Validate all operation latencies against budgets.
+        
+        Args:
+            retrieval_latencies: Retrieval latency measurements
+            packing_latencies: Packing latency measurements
+            internal_compare_latencies: Optional internal compare measurements
+            external_compare_latencies: Optional external compare measurements
+        
+        Returns:
+            Combined LatencyGateResult for all operations
+        """
+        all_violations = []
+        all_warnings = []
+        all_metrics = {}
+        
+        # Validate retrieval
+        if retrieval_latencies:
+            result = self.validate_retrieval(retrieval_latencies)
+            all_violations.extend(result.violations)
+            all_warnings.extend(result.warnings)
+            all_metrics["retrieval"] = result.metrics
+        
+        # Validate packing
+        if packing_latencies:
+            result = self.validate_packing(packing_latencies)
+            all_violations.extend(result.violations)
+            all_warnings.extend(result.warnings)
+            all_metrics["packing"] = result.metrics
+        
+        # Validate internal compare
+        if internal_compare_latencies:
+            result = self.validate_internal_compare(internal_compare_latencies)
+            all_violations.extend(result.violations)
+            all_warnings.extend(result.warnings)
+            all_metrics["internal_compare"] = result.metrics
+        
+        # Validate external compare
+        if external_compare_latencies:
+            result = self.validate_external_compare(external_compare_latencies)
+            all_violations.extend(result.violations)
+            all_warnings.extend(result.warnings)
+            all_metrics["external_compare"] = result.metrics
+        
+        return LatencyGateResult(
+            passed=len(all_violations) == 0,
+            violations=all_violations,
+            warnings=all_warnings,
+            metrics=all_metrics
+        )
+    
+    def _validate_operation(
+        self,
+        operation: str,
+        latencies: List[float],
+        budget: float,
+        percentile: int = 95
+    ) -> LatencyGateResult:
+        """
+        Internal helper to validate operation latencies.
+        
+        Args:
+            operation: Operation name (e.g., "retrieval")
+            latencies: List of latency measurements (ms)
+            budget: Budget threshold (ms)
+            percentile: Percentile to check (default: 95)
+        
+        Returns:
+            LatencyGateResult
+        """
+        if not latencies:
+            return LatencyGateResult(
+                passed=True,
+                warnings=[f"No {operation} latencies to validate"],
+                metrics={}
+            )
+        
+        # Compute percentiles
+        metrics = self._compute_percentiles(latencies)
+        
+        # Check p95 against budget
+        p_key = f"p{percentile}"
+        measured = metrics[p_key]
+        
+        violations = []
+        warnings = []
+        
+        if measured > budget:
+            excess = measured - budget
+            violation = LatencyViolation(
+                operation=operation,
+                metric=p_key,
+                measured=measured,
+                budget=budget,
+                excess=excess,
+                count=len(latencies)
+            )
+            violations.append(violation)
+        
+        # Check for warning conditions
+        # Warn if p50 is close to budget (within 20%)
+        if metrics["p50"] > budget * 0.8:
+            warnings.append(
+                f"{operation} p50 ({metrics['p50']:.1f}ms) is close to "
+                f"p95 budget ({budget:.0f}ms)"
+            )
+        
+        # Warn if max is significantly over budget
+        if metrics["max"] > budget * 2:
+            warnings.append(
+                f"{operation} max latency ({metrics['max']:.1f}ms) is "
+                f"significantly over budget ({budget:.0f}ms)"
+            )
+        
+        return LatencyGateResult(
+            passed=len(violations) == 0,
+            violations=violations,
+            warnings=warnings,
+            metrics=metrics
+        )
+    
+    @staticmethod
+    def _compute_percentiles(latencies: List[float]) -> Dict[str, float]:
+        """
+        Compute latency percentiles.
+        
+        Args:
+            latencies: List of latency measurements
+        
+        Returns:
+            Dictionary with p50, p90, p95, p99, max, avg
+        """
+        if not latencies:
+            return {
+                "p50": 0.0,
+                "p90": 0.0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "max": 0.0,
+                "avg": 0.0,
+                "count": 0
+            }
+        
+        sorted_latencies = sorted(latencies)
+        n = len(sorted_latencies)
+        
+        return {
+            "p50": sorted_latencies[int(n * 0.50)] if n > 1 else sorted_latencies[0],
+            "p90": sorted_latencies[int(n * 0.90)] if n > 1 else sorted_latencies[0],
+            "p95": sorted_latencies[int(n * 0.95)] if n > 1 else sorted_latencies[0],
+            "p99": sorted_latencies[int(n * 0.99)] if n > 1 else sorted_latencies[0],
+            "max": max(latencies),
+            "avg": statistics.mean(latencies),
+            "count": n
+        }
 
 
-def check_latency_budget(
-    latencies: List[float],
-    operation: OperationType,
-    custom_budget: Optional[LatencyBudget] = None
+def check_latency_budgets(
+    results: List[Any],
+    gate: Optional[LatencyGate] = None
 ) -> LatencyGateResult:
     """
-    Check if latencies meet budget for operation.
+    Check latency budgets for a list of evaluation results.
+    
+    Extracts latencies from results and validates against budgets.
     
     Args:
-        latencies: List of latency values in milliseconds
-        operation: Type of operation
-        custom_budget: Optional custom budget (uses standard if None)
+        results: List of EvalResult objects
+        gate: Optional LatencyGate instance (creates default if None)
     
     Returns:
-        LatencyGateResult with pass/fail status
+        LatencyGateResult with validation status
     """
-    # Get budget
-    budget = custom_budget or STANDARD_BUDGETS.get(operation)
-    if not budget:
-        raise ValueError(f"No budget defined for operation: {operation}")
+    if gate is None:
+        gate = LatencyGate()
     
-    # Compute metrics
-    metrics = LatencyMetrics.from_latencies(latencies)
+    # Extract latencies by operation type
+    retrieval_latencies = []
+    packing_latencies = []
+    internal_compare_latencies = []
+    external_compare_latencies = []
     
-    # Check budget constraints
-    violations = []
-    passed = True
+    for result in results:
+        # Retrieval latencies
+        if hasattr(result, 'retrieval_latency_ms') and result.retrieval_latency_ms > 0:
+            retrieval_latencies.append(result.retrieval_latency_ms)
+        
+        # Packing latencies
+        if hasattr(result, 'packing_latency_ms') and result.packing_latency_ms > 0:
+            packing_latencies.append(result.packing_latency_ms)
+        
+        # Compare latencies (categorize by type)
+        if hasattr(result, 'category'):
+            if result.category == "internal_compare" and hasattr(result, 'latency_ms'):
+                internal_compare_latencies.append(result.latency_ms)
+            elif result.category == "external_compare" and hasattr(result, 'latency_ms'):
+                external_compare_latencies.append(result.latency_ms)
     
-    if budget.p50_ms is not None and metrics.p50_ms > budget.p50_ms:
-        violations.append(f"p50 {metrics.p50_ms:.1f}ms exceeds budget {budget.p50_ms:.1f}ms")
-        passed = False
-    
-    if budget.p95_ms is not None and metrics.p95_ms > budget.p95_ms:
-        violations.append(f"p95 {metrics.p95_ms:.1f}ms exceeds budget {budget.p95_ms:.1f}ms")
-        passed = False
-    
-    if budget.p99_ms is not None and metrics.p99_ms > budget.p99_ms:
-        violations.append(f"p99 {metrics.p99_ms:.1f}ms exceeds budget {budget.p99_ms:.1f}ms")
-        passed = False
-    
-    if budget.max_ms is not None and metrics.max_ms > budget.max_ms:
-        violations.append(f"max {metrics.max_ms:.1f}ms exceeds budget {budget.max_ms:.1f}ms")
-        passed = False
-    
-    # Generate message
-    if passed:
-        message = f"✅ {operation.value} latency within budget (p95: {metrics.p95_ms:.1f}ms ≤ {budget.p95_ms:.1f}ms)"
-    else:
-        message = f"❌ {operation.value} latency EXCEEDS budget: {'; '.join(violations)}"
-    
-    return LatencyGateResult(
-        operation=operation,
-        passed=passed,
-        budget=budget,
-        metrics=metrics,
-        violations=violations,
-        message=message
+    # Validate all
+    return gate.validate_all(
+        retrieval_latencies=retrieval_latencies,
+        packing_latencies=packing_latencies,
+        internal_compare_latencies=internal_compare_latencies if internal_compare_latencies else None,
+        external_compare_latencies=external_compare_latencies if external_compare_latencies else None
     )
 
 
-def check_multiple_budgets(
-    latencies_by_operation: Dict[OperationType, List[float]],
-    custom_budgets: Optional[Dict[OperationType, LatencyBudget]] = None
-) -> Dict[OperationType, LatencyGateResult]:
+def format_latency_report(result: LatencyGateResult) -> str:
     """
-    Check multiple operations against their budgets.
+    Format latency gate result as human-readable report.
     
     Args:
-        latencies_by_operation: Dictionary mapping operation to latency list
-        custom_budgets: Optional custom budgets (uses standard for missing)
-    
-    Returns:
-        Dictionary mapping operation to gate result
-    """
-    results = {}
-    
-    for operation, latencies in latencies_by_operation.items():
-        custom_budget = custom_budgets.get(operation) if custom_budgets else None
-        results[operation] = check_latency_budget(latencies, operation, custom_budget)
-    
-    return results
-
-
-def format_latency_report(
-    results: Dict[OperationType, LatencyGateResult],
-    verbose: bool = True
-) -> str:
-    """
-    Format latency gate results as a report.
-    
-    Args:
-        results: Dictionary of latency gate results
-        verbose: Include detailed metrics
+        result: LatencyGateResult to format
     
     Returns:
         Formatted report string
     """
     lines = []
-    lines.append("=" * 80)
-    lines.append("LATENCY BUDGET REPORT")
-    lines.append("=" * 80)
+    
+    # Status
+    if result.passed:
+        lines.append("✅ LATENCY BUDGETS: PASSED")
+    else:
+        lines.append("❌ LATENCY BUDGETS: FAILED")
+    
     lines.append("")
     
-    # Summary
-    total_checks = len(results)
-    passed_checks = sum(1 for r in results.values() if r.passed)
-    failed_checks = total_checks - passed_checks
+    # Metrics
+    if result.metrics:
+        lines.append("Latency Metrics:")
+        for operation, metrics in result.metrics.items():
+            if isinstance(metrics, dict):
+                lines.append(f"  {operation}:")
+                lines.append(f"    p50: {metrics.get('p50', 0):.1f}ms")
+                lines.append(f"    p95: {metrics.get('p95', 0):.1f}ms")
+                lines.append(f"    p99: {metrics.get('p99', 0):.1f}ms")
+                lines.append(f"    max: {metrics.get('max', 0):.1f}ms")
+                lines.append(f"    avg: {metrics.get('avg', 0):.1f}ms")
+                lines.append(f"    count: {metrics.get('count', 0)}")
+        lines.append("")
     
-    lines.append(f"Total Checks: {total_checks}")
-    lines.append(f"Passed: {passed_checks}")
-    lines.append(f"Failed: {failed_checks}")
-    lines.append("")
+    # Violations
+    if result.violations:
+        lines.append("Budget Violations:")
+        for violation in result.violations:
+            lines.append(f"  ❌ {violation}")
+        lines.append("")
     
-    # Details
-    for operation, result in sorted(results.items(), key=lambda x: x[0].value):
-        status = "✅ PASS" if result.passed else "❌ FAIL"
-        lines.append(f"{operation.value}: {status}")
-        
-        if verbose:
-            metrics = result.metrics
-            lines.append(f"  Count: {metrics.count}")
-            lines.append(f"  Mean: {metrics.mean_ms:.1f}ms")
-            lines.append(f"  p50: {metrics.p50_ms:.1f}ms")
-            lines.append(f"  p95: {metrics.p95_ms:.1f}ms")
-            lines.append(f"  Max: {metrics.max_ms:.1f}ms")
-            
-            if result.budget.p95_ms:
-                lines.append(f"  Budget p95: {result.budget.p95_ms:.1f}ms")
-            
-            if result.violations:
-                lines.append(f"  Violations:")
-                for violation in result.violations:
-                    lines.append(f"    - {violation}")
-        
+    # Warnings
+    if result.warnings:
+        lines.append("Warnings:")
+        for warning in result.warnings:
+            lines.append(f"  ⚠️  {warning}")
         lines.append("")
     
     return "\n".join(lines)
 
 
-class LatencyGate:
-    """Helper class for managing latency gates in test suites."""
-    
-    def __init__(self, custom_budgets: Optional[Dict[OperationType, LatencyBudget]] = None):
-        """
-        Initialize latency gate.
-        
-        Args:
-            custom_budgets: Optional custom budgets (uses standard if None)
-        """
-        self.custom_budgets = custom_budgets or {}
-        self.latencies: Dict[OperationType, List[float]] = {}
-        self.results: Dict[OperationType, LatencyGateResult] = {}
-    
-    def record(self, operation: OperationType, latency_ms: float):
-        """Record a latency measurement."""
-        if operation not in self.latencies:
-            self.latencies[operation] = []
-        self.latencies[operation].append(latency_ms)
-    
-    def record_batch(self, operation: OperationType, latencies_ms: List[float]):
-        """Record multiple latency measurements."""
-        if operation not in self.latencies:
-            self.latencies[operation] = []
-        self.latencies[operation].extend(latencies_ms)
-    
-    def check_budgets(self) -> bool:
-        """
-        Check all recorded latencies against budgets.
-        
-        Returns:
-            True if all budgets met, False otherwise
-        """
-        self.results = check_multiple_budgets(self.latencies, self.custom_budgets)
-        return all(r.passed for r in self.results.values())
-    
-    def get_failures(self) -> List[str]:
-        """Get list of failure messages."""
-        return [r.message for r in self.results.values() if not r.passed]
-    
-    def get_report(self, verbose: bool = True) -> str:
-        """Get formatted report."""
-        if not self.results:
-            self.check_budgets()
-        return format_latency_report(self.results, verbose)
-    
-    def reset(self):
-        """Clear all recorded latencies and results."""
-        self.latencies.clear()
-        self.results.clear()
-
-
-def assert_latency_budget(
-    latencies: List[float],
-    operation: OperationType,
-    custom_budget: Optional[LatencyBudget] = None
-):
-    """
-    Assert that latencies meet budget, raising AssertionError if not.
-    
-    Args:
-        latencies: List of latency values
-        operation: Operation type
-        custom_budget: Optional custom budget
-    
-    Raises:
-        AssertionError: If budget is violated
-    """
-    result = check_latency_budget(latencies, operation, custom_budget)
-    
+# Convenience functions for common checks
+def assert_retrieval_budget(latencies: List[float], budget: float = 500) -> None:
+    """Assert retrieval latencies are under budget (raises on failure)."""
+    gate = LatencyGate()
+    result = gate.validate_retrieval(latencies, budget=budget)
     if not result.passed:
-        violations_text = "\n  ".join(result.violations)
-        raise AssertionError(
-            f"Latency budget violated for {operation.value}:\n  {violations_text}"
-        )
+        raise AssertionError(str(result))
+
+
+def assert_packing_budget(latencies: List[float], budget: float = 550) -> None:
+    """Assert packing latencies are under budget (raises on failure)."""
+    gate = LatencyGate()
+    result = gate.validate_packing(latencies, budget=budget)
+    if not result.passed:
+        raise AssertionError(str(result))
+
+
+def assert_internal_compare_budget(latencies: List[float], budget: float = 400) -> None:
+    """Assert internal compare latencies are under budget (raises on failure)."""
+    gate = LatencyGate()
+    result = gate.validate_internal_compare(latencies, budget=budget)
+    if not result.passed:
+        raise AssertionError(str(result))
+
+
+def assert_external_compare_budget(latencies: List[float], budget: float = 2000) -> None:
+    """Assert external compare latencies are under budget (raises on failure)."""
+    gate = LatencyGate()
+    result = gate.validate_external_compare(latencies, budget=budget)
+    if not result.passed:
+        raise AssertionError(str(result))
 
 
 if __name__ == "__main__":
     # Example usage
     print("Latency Budget Gates - Example Usage")
     print("=" * 60)
-    print()
     
-    # Example 1: Single operation check
-    retrieval_latencies = [450, 480, 520, 490, 510]
-    result = check_latency_budget(retrieval_latencies, OperationType.RETRIEVAL)
-    print(f"Example 1: {result.message}")
-    print(f"  Metrics: p95={result.metrics.p95_ms:.1f}ms, max={result.metrics.max_ms:.1f}ms")
-    print()
+    # Simulate some latencies
+    retrieval_latencies = [200, 250, 300, 350, 400, 450, 480]
+    packing_latencies = [100, 150, 200, 250, 300]
     
-    # Example 2: Multiple operations
-    latencies_by_op = {
-        OperationType.RETRIEVAL: [400, 450, 480, 490, 495],
-        OperationType.PACKING: [500, 520, 540, 550, 560],
-        OperationType.SCORING: [150, 160, 170, 180, 190]
-    }
-    
-    results = check_multiple_budgets(latencies_by_op)
-    print("Example 2: Multiple operations")
-    for op, result in results.items():
-        print(f"  {result.message}")
-    print()
-    
-    # Example 3: Using LatencyGate helper
+    # Create gate
     gate = LatencyGate()
-    gate.record_batch(OperationType.RETRIEVAL, [400, 450, 480, 490, 495])
-    gate.record_batch(OperationType.PACKING, [500, 520, 540, 550, 560])
     
-    if gate.check_budgets():
-        print("Example 3: ✅ All budgets met")
-    else:
-        print("Example 3: ❌ Budget violations:")
-        for failure in gate.get_failures():
-            print(f"  {failure}")
+    # Validate retrieval
+    result = gate.validate_retrieval(retrieval_latencies)
+    print(format_latency_report(result))
     
-    print()
-    print(gate.get_report(verbose=False))
+    # Simulate over-budget scenario
+    print("\nSimulating over-budget retrieval:")
+    slow_retrieval = [400, 500, 550, 600, 650, 700, 750]
+    result = gate.validate_retrieval(slow_retrieval)
+    print(format_latency_report(result))

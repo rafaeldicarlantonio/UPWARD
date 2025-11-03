@@ -16,12 +16,8 @@ from pathlib import Path
 # Add workspace to path
 sys.path.insert(0, '/workspace')
 
-from evals.latency import (
-    LatencyGate,
-    OperationType,
-    check_latency_budget,
-    format_latency_report
-)
+# Import latency gates
+from evals.latency import LatencyGate, check_latency_budgets, format_latency_report
 
 @dataclass
 class EvalResult:
@@ -102,9 +98,9 @@ class EvalSummary:
     contradiction_metrics: Dict[str, Any] = field(default_factory=dict)
     timing_breakdown: Dict[str, float] = field(default_factory=dict)
     
-    # Latency budget gates
-    latency_gates_passed: bool = True
-    latency_gate_failures: List[str] = field(default_factory=list)
+    # Latency gate results
+    latency_gate_passed: bool = True
+    latency_violations: List[Any] = field(default_factory=list)
 
 class EvalRunner:
     """Runs evaluations for implicate lift and contradiction surfacing."""
@@ -709,30 +705,21 @@ class EvalRunner:
             "detection_accuracy": sum(1 for r in contradiction_results if r.meets_contradiction_constraint) / len(contradiction_results) if contradiction_results else 0
         }
         
-        # Check latency budgets
-        latency_gates_passed = True
-        latency_gate_failures = []
-        
-        if self.enforce_latency_budgets:
-            # Record latencies by operation type
-            retrieval_latencies = [r.retrieval_latency_ms for r in self.results if r.retrieval_latency_ms > 0]
-            packing_latencies = [r.packing_latency_ms for r in self.results if r.packing_latency_ms > 0]
-            scoring_latencies = [r.scoring_latency_ms for r in self.results if r.scoring_latency_ms > 0]
-            
-            if retrieval_latencies:
-                self.latency_gate.record_batch(OperationType.RETRIEVAL, retrieval_latencies)
-            if packing_latencies:
-                self.latency_gate.record_batch(OperationType.PACKING, packing_latencies)
-            if scoring_latencies:
-                self.latency_gate.record_batch(OperationType.SCORING, scoring_latencies)
-            
-            # Check budgets
-            latency_gates_passed = self.latency_gate.check_budgets()
-            if not latency_gates_passed:
-                latency_gate_failures = self.latency_gate.get_failures()
-        
         # Performance issues
         performance_issues = []
+        
+        # Check latency budgets
+        latency_gate_passed = True
+        latency_violations_list = []
+        
+        if self.enforce_latency_budgets and self.results:
+            latency_result = check_latency_budgets(self.results, self.latency_gate)
+            latency_gate_passed = latency_result.passed
+            latency_violations_list = latency_result.violations
+            
+            if not latency_gate_passed:
+                for violation in latency_result.violations:
+                    performance_issues.append(str(violation))
         if p95_latency_ms > self.max_latency_ms:
             performance_issues.append(f"P95 latency {p95_latency_ms:.1f}ms exceeds {self.max_latency_ms}ms threshold")
         
@@ -763,8 +750,8 @@ class EvalRunner:
             implicate_lift_metrics=implicate_lift_metrics,
             contradiction_metrics=contradiction_metrics,
             timing_breakdown=timing_breakdown,
-            latency_gates_passed=latency_gates_passed,
-            latency_gate_failures=latency_gate_failures
+            latency_gate_passed=latency_gate_passed,
+            latency_violations=latency_violations_list
         )
     
     def print_summary(self):

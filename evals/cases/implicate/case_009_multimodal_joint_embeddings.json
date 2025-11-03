@@ -1,0 +1,10 @@
+{
+  "id": "implicate_009",
+  "query": "How do joint embeddings enable vision-language understanding?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_multimodal_016", "doc_embedding_008"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Connects multimodal joint embeddings (doc_016) with fundamental embedding concepts (doc_008). Understanding 'joint embeddings' requires knowledge of what embeddings are in general. Legacy may miss doc_008 since it focuses on word embeddings, not multimodal."
+}

@@ -1,0 +1,10 @@
+{
+  "id": "implicate_007",
+  "query": "How does few-shot prompting relate to instruction tuning?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_prompt_013", "doc_finetune_009"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Connects prompting techniques (doc_013) with instruction tuning methodology (doc_009). While doc_013 mentions instruction tuning, understanding the broader relationship with fine-tuning requires graph bridging. Legacy may miss the fine-tuning connection."
+}

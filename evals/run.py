@@ -42,6 +42,13 @@ class EvalResult:
     meets_latency_constraint: bool = True
     meets_implicate_constraint: bool = True
     meets_contradiction_constraint: bool = True
+    
+    # Implicate lift metrics
+    expected_source_ids: List[str] = field(default_factory=list)
+    retrieved_source_ids: List[str] = field(default_factory=list)
+    found_in_top_k: List[str] = field(default_factory=list)
+    recall_at_k: float = 0.0
+    top_k: int = 8
 
 @dataclass
 class EvalSummary:
@@ -80,10 +87,15 @@ class EvalRunner:
         self.timing_enabled = True
         self.performance_warnings = []
         
-    def run_single_case(self, case: Dict[str, Any]) -> EvalResult:
-        """Run a single evaluation case with detailed timing."""
+    def run_single_case(self, case: Dict[str, Any], pipeline: str = None) -> EvalResult:
+        """Run a single evaluation case with detailed timing.
+        
+        Args:
+            case: Test case dictionary
+            pipeline: Optional pipeline override ('legacy' or 'new')
+        """
         case_id = case["id"]
-        prompt = case["prompt"]
+        prompt = case.get("prompt") or case.get("query", "")
         category = case.get("category", "unknown")
         
         print(f"  Running {case_id}: {prompt[:50]}...")
@@ -145,9 +157,20 @@ class EvalRunner:
             answer = data.get("answer", "").lower()
             citations = data.get("citations", [])
             
-            # Extract debug metrics if available
+            # Extract retrieved source IDs for implicate lift validation
+            retrieved_source_ids = []
+            if isinstance(citations, list):
+                for citation in citations:
+                    if isinstance(citation, dict) and "source_id" in citation:
+                        retrieved_source_ids.append(citation["source_id"])
+                    elif isinstance(citation, str):
+                        retrieved_source_ids.append(citation)
+            
+            # Check for retrieved_ids in debug metrics
             debug_metrics = data.get("debug", {})
             retrieval_metrics = debug_metrics.get("retrieval_metrics", {})
+            if "retrieved_ids" in retrieval_metrics:
+                retrieved_source_ids = retrieval_metrics["retrieved_ids"]
             
             # Check basic requirements
             must_include = case.get("must_include", [])
@@ -156,6 +179,24 @@ class EvalRunner:
             passed = True
             error_parts = []
             constraint_violations = []
+            
+            # Implicate lift validation
+            expected_source_ids = case.get("expected_source_ids", [])
+            expected_in_top_k = case.get("expected_in_top_k", 8)
+            found_in_top_k = []
+            recall_at_k = 0.0
+            
+            if expected_source_ids and retrieved_source_ids:
+                # Check which expected IDs are in top k
+                top_k_ids = retrieved_source_ids[:expected_in_top_k]
+                found_in_top_k = [id for id in expected_source_ids if id in top_k_ids]
+                recall_at_k = len(found_in_top_k) / len(expected_source_ids) if expected_source_ids else 0.0
+                
+                # For implicate lift cases, passing means finding all expected IDs
+                if category == "implicate_lift" and recall_at_k < 1.0:
+                    passed = False
+                    missing_ids = [id for id in expected_source_ids if id not in found_in_top_k]
+                    error_parts.append(f"Missing expected IDs in top-{expected_in_top_k}: {missing_ids}")
             
             # Check must_include terms
             if must_include:
@@ -246,6 +287,11 @@ class EvalRunner:
                 contradictions_found=contradictions_found,
                 contradiction_score=contradiction_score,
                 lift_score=lift_score,
+                expected_source_ids=expected_source_ids,
+                retrieved_source_ids=retrieved_source_ids,
+                found_in_top_k=found_in_top_k,
+                recall_at_k=recall_at_k,
+                top_k=expected_in_top_k,
                 details={
                     "answer": answer[:200] + "..." if len(answer) > 200 else answer,
                     "citations": citations,
@@ -269,17 +315,31 @@ class EvalRunner:
                 error=f"Exception: {str(e)}"
             )
     
-    def run_testset(self, testset_path: str) -> List[EvalResult]:
-        """Run all cases in a testset."""
+    def run_testset(self, testset_path: str, pipeline: str = None) -> List[EvalResult]:
+        """Run all cases in a testset.
+        
+        Args:
+            testset_path: Path to testset file (.json or .jsonl)
+            pipeline: Optional pipeline override ('legacy' or 'new')
+        """
         print(f"Running testset: {testset_path}")
         
+        # Load cases - support both JSON and JSONL formats
+        cases = []
         with open(testset_path, 'r') as f:
-            cases = json.load(f)
+            if testset_path.endswith('.jsonl'):
+                # JSONL format - one case per line
+                for line in f:
+                    if line.strip():
+                        cases.append(json.loads(line))
+            else:
+                # JSON format - array of cases
+                cases = json.load(f)
         
         results = []
         for i, case in enumerate(cases, 1):
             print(f"  [{i}/{len(cases)}] {case['id']}")
-            result = self.run_single_case(case)
+            result = self.run_single_case(case, pipeline=pipeline)
             results.append(result)
             self.results.append(result)
             
@@ -287,6 +347,10 @@ class EvalRunner:
             print(f"    {status} - {result.latency_ms:.1f}ms")
             if result.error:
                 print(f"    Error: {result.error}")
+            
+            # Print recall@k for implicate lift cases
+            if case.get("category") == "implicate_lift" and result.expected_source_ids:
+                print(f"    Recall@{result.top_k}: {result.recall_at_k:.2f} ({len(result.found_in_top_k)}/{len(result.expected_source_ids)} docs)")
         
         return results
     

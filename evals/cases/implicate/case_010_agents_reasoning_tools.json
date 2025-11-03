@@ -1,0 +1,10 @@
+{
+  "id": "implicate_010",
+  "query": "How does chain-of-thought reasoning enhance agent tool use?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_agents_017", "doc_prompt_013"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Bridges LLM agents (doc_017) with chain-of-thought prompting (doc_013). While doc_017 mentions reasoning, the specific connection to 'chain-of-thought' technique requires understanding that CoT is a prompting method that enhances reasoning. Graph should link these concepts."
+}

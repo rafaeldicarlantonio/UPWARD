@@ -1,0 +1,10 @@
+{
+  "id": "implicate_001",
+  "query": "How does attention mechanism relate to BERT's contextual understanding?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_transformer_003", "doc_bert_004"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Query requires bridging 'attention mechanism' (doc_003) with 'BERT contextual understanding' (doc_004). Legacy keyword search may miss the connection since neither document explicitly mentions both concepts together. Implicate/graph should bridge through transformer architecture."
+}

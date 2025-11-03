@@ -1,0 +1,10 @@
+{
+  "id": "implicate_008",
+  "query": "What role does human feedback play in aligning language models?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_rlhf_014", "doc_safety_018"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Bridges RLHF methodology (doc_014) with AI safety concerns (doc_018). The query uses 'aligning' which is central to both documents but requires understanding that RLHF is a technique for achieving alignment/safety. Graph should capture this goal-method relationship."
+}

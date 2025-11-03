@@ -1,0 +1,185 @@
+{
+  "description": "Deterministic corpus for implicate lift testing - documents with implicit relationships",
+  "documents": [
+    {
+      "id": "doc_neural_001",
+      "title": "Neural Network Fundamentals",
+      "content": "Neural networks consist of interconnected layers of artificial neurons. Each neuron applies an activation function to weighted inputs. The network learns by adjusting these weights through backpropagation.",
+      "metadata": {
+        "category": "machine_learning",
+        "concepts": ["neural_networks", "backpropagation", "activation_functions"]
+      }
+    },
+    {
+      "id": "doc_deep_002",
+      "title": "Deep Learning Architecture Patterns",
+      "content": "Deep learning models utilize multiple hidden layers to learn hierarchical representations. Common architectures include convolutional networks for spatial data and recurrent networks for sequential data.",
+      "metadata": {
+        "category": "machine_learning",
+        "concepts": ["deep_learning", "cnns", "rnns", "hierarchical_learning"]
+      }
+    },
+    {
+      "id": "doc_transformer_003",
+      "title": "Transformer Models and Attention",
+      "content": "Transformers revolutionized NLP by replacing recurrence with self-attention mechanisms. The attention mechanism allows models to weigh the importance of different input tokens dynamically.",
+      "metadata": {
+        "category": "nlp",
+        "concepts": ["transformers", "attention", "self_attention"]
+      }
+    },
+    {
+      "id": "doc_bert_004",
+      "title": "BERT: Bidirectional Encoder Representations",
+      "content": "BERT is a transformer-based model trained with masked language modeling. It generates contextual embeddings by processing text bidirectionally, enabling better understanding of word meaning in context.",
+      "metadata": {
+        "category": "nlp",
+        "concepts": ["bert", "embeddings", "contextual_representations", "masked_lm"]
+      }
+    },
+    {
+      "id": "doc_gpt_005",
+      "title": "GPT and Autoregressive Language Models",
+      "content": "GPT models are autoregressive transformers that predict the next token given previous context. They are trained on large text corpora and can generate coherent text across diverse topics.",
+      "metadata": {
+        "category": "nlp",
+        "concepts": ["gpt", "autoregressive", "language_models", "text_generation"]
+      }
+    },
+    {
+      "id": "doc_gradient_006",
+      "title": "Gradient Descent Optimization",
+      "content": "Gradient descent iteratively updates model parameters by moving in the direction of steepest descent of the loss function. Variants include SGD, Adam, and RMSprop, each with different update rules.",
+      "metadata": {
+        "category": "optimization",
+        "concepts": ["gradient_descent", "sgd", "adam", "optimization"]
+      }
+    },
+    {
+      "id": "doc_regularization_007",
+      "title": "Regularization Techniques in Machine Learning",
+      "content": "Regularization prevents overfitting by adding constraints to the learning process. Techniques include L1/L2 penalties, dropout, early stopping, and data augmentation.",
+      "metadata": {
+        "category": "machine_learning",
+        "concepts": ["regularization", "dropout", "overfitting", "generalization"]
+      }
+    },
+    {
+      "id": "doc_embedding_008",
+      "title": "Word Embeddings and Vector Representations",
+      "content": "Word embeddings map words to dense vectors that capture semantic relationships. Word2Vec and GloVe are classic methods, while modern approaches use contextual embeddings from transformers.",
+      "metadata": {
+        "category": "nlp",
+        "concepts": ["embeddings", "word2vec", "glove", "vector_semantics"]
+      }
+    },
+    {
+      "id": "doc_finetune_009",
+      "title": "Fine-tuning Pretrained Models",
+      "content": "Fine-tuning adapts pretrained models to specific tasks by continuing training on task-specific data. This transfer learning approach requires less data and computational resources than training from scratch.",
+      "metadata": {
+        "category": "machine_learning",
+        "concepts": ["fine_tuning", "transfer_learning", "pretrained_models"]
+      }
+    },
+    {
+      "id": "doc_llm_010",
+      "title": "Large Language Models at Scale",
+      "content": "Large language models with billions of parameters demonstrate emergent capabilities like few-shot learning and reasoning. Scaling laws suggest performance improves with model size, data, and compute.",
+      "metadata": {
+        "category": "nlp",
+        "concepts": ["llms", "scaling_laws", "few_shot_learning", "emergent_abilities"]
+      }
+    },
+    {
+      "id": "doc_rag_011",
+      "title": "Retrieval-Augmented Generation Systems",
+      "content": "RAG systems combine retrieval with generation by fetching relevant documents before generating responses. This grounds outputs in factual information and reduces hallucinations.",
+      "metadata": {
+        "category": "applications",
+        "concepts": ["rag", "retrieval", "generation", "grounding"]
+      }
+    },
+    {
+      "id": "doc_vector_012",
+      "title": "Vector Databases and Similarity Search",
+      "content": "Vector databases enable efficient similarity search over high-dimensional embeddings using approximate nearest neighbor algorithms like HNSW and IVF.",
+      "metadata": {
+        "category": "infrastructure",
+        "concepts": ["vector_db", "similarity_search", "ann", "indexing"]
+      }
+    },
+    {
+      "id": "doc_prompt_013",
+      "title": "Prompt Engineering Best Practices",
+      "content": "Effective prompting involves clear instructions, examples, and structured formats. Techniques include few-shot prompting, chain-of-thought reasoning, and role-based instructions.",
+      "metadata": {
+        "category": "applications",
+        "concepts": ["prompting", "few_shot", "chain_of_thought", "instruction_tuning"]
+      }
+    },
+    {
+      "id": "doc_rlhf_014",
+      "title": "Reinforcement Learning from Human Feedback",
+      "content": "RLHF aligns language models with human preferences by training a reward model from human comparisons, then using RL to optimize the policy against this reward.",
+      "metadata": {
+        "category": "alignment",
+        "concepts": ["rlhf", "alignment", "reward_modeling", "preference_learning"]
+      }
+    },
+    {
+      "id": "doc_eval_015",
+      "title": "Evaluating Language Model Performance",
+      "content": "LLM evaluation includes benchmarks for reasoning, knowledge, and safety. Metrics range from perplexity to human evaluation, with growing emphasis on real-world task performance.",
+      "metadata": {
+        "category": "evaluation",
+        "concepts": ["evaluation", "benchmarks", "metrics", "testing"]
+      }
+    },
+    {
+      "id": "doc_multimodal_016",
+      "title": "Multimodal Models for Vision and Language",
+      "content": "Multimodal models process both images and text by learning joint representations. CLIP and GPT-4V demonstrate strong zero-shot capabilities across vision-language tasks.",
+      "metadata": {
+        "category": "multimodal",
+        "concepts": ["multimodal", "vision_language", "clip", "joint_embeddings"]
+      }
+    },
+    {
+      "id": "doc_agents_017",
+      "title": "AI Agents and Tool Use",
+      "content": "LLM-based agents can reason about and use external tools like calculators, search engines, and APIs. This extends their capabilities beyond text generation to complex task completion.",
+      "metadata": {
+        "category": "applications",
+        "concepts": ["agents", "tool_use", "reasoning", "task_automation"]
+      }
+    },
+    {
+      "id": "doc_safety_018",
+      "title": "AI Safety and Robustness",
+      "content": "Ensuring AI safety requires addressing adversarial attacks, distributional shift, and unintended behaviors. Techniques include adversarial training, red-teaming, and formal verification.",
+      "metadata": {
+        "category": "safety",
+        "concepts": ["safety", "robustness", "adversarial", "red_teaming"]
+      }
+    },
+    {
+      "id": "doc_scaling_019",
+      "title": "Distributed Training and Model Parallelism",
+      "content": "Training large models requires distributed systems using data parallelism, model parallelism, and pipeline parallelism. Frameworks like DeepSpeed and Megatron enable efficient scaling.",
+      "metadata": {
+        "category": "infrastructure",
+        "concepts": ["distributed_training", "parallelism", "scaling", "systems"]
+      }
+    },
+    {
+      "id": "doc_efficiency_020",
+      "title": "Model Compression and Efficiency",
+      "content": "Reducing model size and inference cost through quantization, pruning, and distillation. Efficient architectures balance performance with resource constraints for deployment.",
+      "metadata": {
+        "category": "optimization",
+        "concepts": ["compression", "quantization", "pruning", "distillation", "efficiency"]
+      }
+    }
+  ]
+}

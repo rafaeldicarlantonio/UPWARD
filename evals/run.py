@@ -65,6 +65,16 @@ class EvalResult:
     decision_tiebreak: Optional[str] = None
     expected_parity: Optional[bool] = None
     expected_policy: Optional[str] = None
+    
+    # Pareto gate metrics
+    pareto_score: float = 0.0
+    pareto_threshold: float = 0.65
+    persisted: bool = False
+    expected_persisted: bool = False
+    override_enabled: bool = False
+    override_reason: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    scoring_latency_ms: float = 0.0
 
 @dataclass
 class EvalSummary:
@@ -332,6 +342,68 @@ class EvalRunner:
                             f"got {decision_tiebreak}"
                         )
             
+            # Pareto gate validation
+            pareto_score = 0.0
+            pareto_threshold = 0.65
+            persisted = False
+            expected_persisted = case.get("expected_persisted", False)
+            override_enabled = False
+            override_reason = None
+            rejection_reason = None
+            scoring_latency_ms = 0.0
+            expected_status_code = case.get("expected_status_code", 200)
+            
+            if category == "pareto_gate":
+                # Extract score and persistence info from response
+                pareto_score = data.get("score", 0.0)
+                pareto_threshold = data.get("threshold", 0.65)
+                persisted = data.get("persisted", False)
+                override_enabled = data.get("override", False)
+                override_reason = data.get("override_reason")
+                rejection_reason = data.get("reason")
+                
+                # Extract scoring latency if available
+                timing_data = data.get("timing", {})
+                scoring_latency_ms = timing_data.get("scoring_ms", 0.0)
+                
+                # Validate persistence matches expectation
+                if persisted != expected_persisted:
+                    passed = False
+                    error_parts.append(
+                        f"Persistence mismatch: expected {expected_persisted}, got {persisted}"
+                    )
+                
+                # Validate status code
+                if response.status_code != expected_status_code:
+                    passed = False
+                    error_parts.append(
+                        f"Status code mismatch: expected {expected_status_code}, "
+                        f"got {response.status_code}"
+                    )
+                
+                # Validate override behavior
+                if case.get("proposal", {}).get("override", {}).get("enabled"):
+                    # Override case should persist and log override
+                    if not persisted:
+                        passed = False
+                        error_parts.append("Override case should persist")
+                    if not override_enabled:
+                        passed = False
+                        error_parts.append("Override not logged")
+                
+                # Validate rejection reason for non-persisted
+                if not persisted and not rejection_reason:
+                    passed = False
+                    error_parts.append("Missing rejection reason for non-persisted proposal")
+                
+                # Validate scoring latency budget
+                max_scoring_latency = case.get("max_scoring_latency_ms", 200)
+                if scoring_latency_ms > max_scoring_latency:
+                    passed = False
+                    error_parts.append(
+                        f"Scoring latency {scoring_latency_ms:.1f}ms exceeds {max_scoring_latency}ms"
+                    )
+            
             # Check must_include terms
             if must_include:
                 missing_terms = [term for term in must_include if term.lower() not in answer]
@@ -438,6 +510,14 @@ class EvalRunner:
                 decision_tiebreak=decision_tiebreak,
                 expected_parity=expected_parity,
                 expected_policy=expected_policy,
+                pareto_score=pareto_score,
+                pareto_threshold=pareto_threshold,
+                persisted=persisted,
+                expected_persisted=expected_persisted,
+                override_enabled=override_enabled,
+                override_reason=override_reason,
+                rejection_reason=rejection_reason,
+                scoring_latency_ms=scoring_latency_ms,
                 details={
                     "answer": answer[:200] + "..." if len(answer) > 200 else answer,
                     "citations": citations,
@@ -506,10 +586,17 @@ class EvalRunner:
             
             # Print external compare metrics
             if case.get("category") == "external_compare":
-                ext_used_str = "✓" if result.external_used else "✗"
-                ingested_str = "❌" if result.external_ingested else "✓"
+                ext_used_str = "?" if result.external_used else "?"
+                ingested_str = "?" if result.external_ingested else "?"
                 policy_str = result.decision_tiebreak or "N/A"
                 print(f"    External: {ext_used_str}, Policy: {policy_str}, No-Ingestion: {ingested_str}")
+            
+            # Print Pareto gate metrics
+            if case.get("category") == "pareto_gate":
+                persist_str = "?" if result.persisted else "?"
+                override_str = f" [OVERRIDE: {result.override_reason}]" if result.override_enabled else ""
+                rejection_str = f" (reason: {result.rejection_reason})" if result.rejection_reason else ""
+                print(f"    Score: {result.pareto_score:.3f}, Threshold: {result.pareto_threshold:.3f}, Persisted: {persist_str}{override_str}{rejection_str}, Scoring: {result.scoring_latency_ms:.1f}ms")
         
         return results
     

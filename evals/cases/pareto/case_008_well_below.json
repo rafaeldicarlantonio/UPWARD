@@ -1,0 +1,20 @@
+{
+  "id": "pareto_008",
+  "proposal": {
+    "hypothesis": "Python uses indentation for code blocks.",
+    "signals": {
+      "novelty": 0.42,
+      "evidence_strength": 0.50,
+      "coherence": 0.48,
+      "specificity": 0.40
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.46,
+  "expected_persisted": false,
+  "expected_status_code": 202,
+  "expected_rejection_reason": "score_below_threshold",
+  "max_scoring_latency_ms": 200,
+  "scenario": "well_below_threshold",
+  "rationale": "Score 0.46 well below threshold. Should not persist."
+}

@@ -1,0 +1,249 @@
+{
+  "description": "Test proposals for Pareto gating evaluation",
+  "scoring_config": {
+    "threshold": 0.65,
+    "components": {
+      "novelty": {
+        "weight": 0.35,
+        "range": [0.0, 1.0]
+      },
+      "evidence_strength": {
+        "weight": 0.30,
+        "range": [0.0, 1.0]
+      },
+      "coherence": {
+        "weight": 0.20,
+        "range": [0.0, 1.0]
+      },
+      "specificity": {
+        "weight": 0.15,
+        "range": [0.0, 1.0]
+      }
+    }
+  },
+  "test_proposals": [
+    {
+      "id": "prop_high_001",
+      "hypothesis": "Machine learning models benefit from regularization techniques to prevent overfitting.",
+      "signals": {
+        "novelty": 0.85,
+        "evidence_strength": 0.90,
+        "coherence": 0.88,
+        "specificity": 0.82
+      },
+      "calculated_score": 0.87,
+      "expected_persisted": true,
+      "scenario": "well_above_threshold"
+    },
+    {
+      "id": "prop_high_002",
+      "hypothesis": "Docker containers provide consistent deployment environments across different platforms.",
+      "signals": {
+        "novelty": 0.78,
+        "evidence_strength": 0.85,
+        "coherence": 0.82,
+        "specificity": 0.75
+      },
+      "calculated_score": 0.81,
+      "expected_persisted": true,
+      "scenario": "above_threshold"
+    },
+    {
+      "id": "prop_high_003",
+      "hypothesis": "React hooks simplify state management in functional components.",
+      "signals": {
+        "novelty": 0.72,
+        "evidence_strength": 0.80,
+        "coherence": 0.75,
+        "specificity": 0.70
+      },
+      "calculated_score": 0.76,
+      "expected_persisted": true,
+      "scenario": "above_threshold"
+    },
+    {
+      "id": "prop_boundary_004",
+      "hypothesis": "Kubernetes orchestration improves container scaling capabilities.",
+      "signals": {
+        "novelty": 0.68,
+        "evidence_strength": 0.70,
+        "coherence": 0.65,
+        "specificity": 0.62
+      },
+      "calculated_score": 0.67,
+      "expected_persisted": true,
+      "scenario": "just_above_threshold"
+    },
+    {
+      "id": "prop_boundary_005",
+      "hypothesis": "SQL joins enable complex data relationships in relational databases.",
+      "signals": {
+        "novelty": 0.65,
+        "evidence_strength": 0.68,
+        "coherence": 0.63,
+        "specificity": 0.60
+      },
+      "calculated_score": 0.65,
+      "expected_persisted": true,
+      "scenario": "at_threshold"
+    },
+    {
+      "id": "prop_boundary_006",
+      "hypothesis": "Git branching facilitates parallel development workflows.",
+      "signals": {
+        "novelty": 0.63,
+        "evidence_strength": 0.65,
+        "coherence": 0.62,
+        "specificity": 0.58
+      },
+      "calculated_score": 0.63,
+      "expected_persisted": false,
+      "scenario": "just_below_threshold"
+    },
+    {
+      "id": "prop_low_007",
+      "hypothesis": "REST APIs use HTTP methods for operations.",
+      "signals": {
+        "novelty": 0.55,
+        "evidence_strength": 0.60,
+        "coherence": 0.58,
+        "specificity": 0.52
+      },
+      "calculated_score": 0.57,
+      "expected_persisted": false,
+      "scenario": "below_threshold"
+    },
+    {
+      "id": "prop_low_008",
+      "hypothesis": "Python uses indentation for code blocks.",
+      "signals": {
+        "novelty": 0.42,
+        "evidence_strength": 0.50,
+        "coherence": 0.48,
+        "specificity": 0.40
+      },
+      "calculated_score": 0.46,
+      "expected_persisted": false,
+      "scenario": "well_below_threshold"
+    },
+    {
+      "id": "prop_low_009",
+      "hypothesis": "Variables store data in programming languages.",
+      "signals": {
+        "novelty": 0.30,
+        "evidence_strength": 0.35,
+        "coherence": 0.32,
+        "specificity": 0.28
+      },
+      "calculated_score": 0.32,
+      "expected_persisted": false,
+      "scenario": "far_below_threshold"
+    },
+    {
+      "id": "prop_override_010",
+      "hypothesis": "Analytics-flagged insight: User engagement increases with personalized content.",
+      "signals": {
+        "novelty": 0.45,
+        "evidence_strength": 0.50,
+        "coherence": 0.48,
+        "specificity": 0.42
+      },
+      "calculated_score": 0.47,
+      "override": {
+        "enabled": true,
+        "reason": "analytics_priority",
+        "source": "product_analytics"
+      },
+      "expected_persisted": true,
+      "scenario": "analytics_override"
+    },
+    {
+      "id": "prop_override_011",
+      "hypothesis": "Critical bug: Authentication bypass in legacy API endpoint.",
+      "signals": {
+        "novelty": 0.38,
+        "evidence_strength": 0.42,
+        "coherence": 0.40,
+        "specificity": 0.35
+      },
+      "calculated_score": 0.39,
+      "override": {
+        "enabled": true,
+        "reason": "security_critical",
+        "source": "security_team"
+      },
+      "expected_persisted": true,
+      "scenario": "security_override"
+    },
+    {
+      "id": "prop_override_012",
+      "hypothesis": "Executive priority: Implement real-time collaboration features.",
+      "signals": {
+        "novelty": 0.52,
+        "evidence_strength": 0.48,
+        "coherence": 0.50,
+        "specificity": 0.45
+      },
+      "calculated_score": 0.50,
+      "override": {
+        "enabled": true,
+        "reason": "executive_priority",
+        "source": "leadership"
+      },
+      "expected_persisted": true,
+      "scenario": "executive_override"
+    },
+    {
+      "id": "prop_high_004",
+      "hypothesis": "Microservices architecture enables independent service scaling.",
+      "signals": {
+        "novelty": 0.88,
+        "evidence_strength": 0.92,
+        "coherence": 0.85,
+        "specificity": 0.80
+      },
+      "calculated_score": 0.88,
+      "expected_persisted": true,
+      "scenario": "well_above_threshold"
+    },
+    {
+      "id": "prop_high_005",
+      "hypothesis": "GraphQL provides flexible client-driven data fetching.",
+      "signals": {
+        "novelty": 0.80,
+        "evidence_strength": 0.78,
+        "coherence": 0.76,
+        "specificity": 0.72
+      },
+      "calculated_score": 0.77,
+      "expected_persisted": true,
+      "scenario": "above_threshold"
+    },
+    {
+      "id": "prop_low_010",
+      "hypothesis": "Functions encapsulate reusable code logic.",
+      "signals": {
+        "novelty": 0.48,
+        "evidence_strength": 0.52,
+        "coherence": 0.50,
+        "specificity": 0.45
+      },
+      "calculated_score": 0.49,
+      "expected_persisted": false,
+      "scenario": "below_threshold"
+    },
+    {
+      "id": "prop_boundary_007",
+      "hypothesis": "Caching strategies reduce database query overhead.",
+      "signals": {
+        "novelty": 0.66,
+        "evidence_strength": 0.68,
+        "coherence": 0.64,
+        "specificity": 0.61
+      },
+      "calculated_score": 0.66,
+      "expected_persisted": true,
+      "scenario": "just_above_threshold"
+    }
+  ]
+}

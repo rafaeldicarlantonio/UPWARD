@@ -1,0 +1,19 @@
+{
+  "id": "pareto_016",
+  "proposal": {
+    "hypothesis": "Caching strategies reduce database query overhead.",
+    "signals": {
+      "novelty": 0.66,
+      "evidence_strength": 0.68,
+      "coherence": 0.64,
+      "specificity": 0.61
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.66,
+  "expected_persisted": true,
+  "expected_status_code": 201,
+  "max_scoring_latency_ms": 200,
+  "scenario": "just_above_threshold",
+  "rationale": "Score 0.66 marginally above threshold 0.65. Should persist."
+}

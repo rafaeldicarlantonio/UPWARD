@@ -1,0 +1,19 @@
+{
+  "id": "pareto_003",
+  "proposal": {
+    "hypothesis": "React hooks simplify state management in functional components.",
+    "signals": {
+      "novelty": 0.72,
+      "evidence_strength": 0.80,
+      "coherence": 0.75,
+      "specificity": 0.70
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.76,
+  "expected_persisted": true,
+  "expected_status_code": 201,
+  "max_scoring_latency_ms": 200,
+  "scenario": "above_threshold",
+  "rationale": "Score 0.76 comfortably above threshold. Should persist."
+}

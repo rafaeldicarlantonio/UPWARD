@@ -1,0 +1,19 @@
+{
+  "id": "pareto_001",
+  "proposal": {
+    "hypothesis": "Machine learning models benefit from regularization techniques to prevent overfitting.",
+    "signals": {
+      "novelty": 0.85,
+      "evidence_strength": 0.90,
+      "coherence": 0.88,
+      "specificity": 0.82
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.87,
+  "expected_persisted": true,
+  "expected_status_code": 201,
+  "max_scoring_latency_ms": 200,
+  "scenario": "well_above_threshold",
+  "rationale": "Score 0.87 well above threshold 0.65. Should persist with 201 Created."
+}

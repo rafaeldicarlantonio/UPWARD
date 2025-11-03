@@ -1,0 +1,19 @@
+{
+  "id": "pareto_004",
+  "proposal": {
+    "hypothesis": "Kubernetes orchestration improves container scaling capabilities.",
+    "signals": {
+      "novelty": 0.68,
+      "evidence_strength": 0.70,
+      "coherence": 0.65,
+      "specificity": 0.62
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.67,
+  "expected_persisted": true,
+  "expected_status_code": 201,
+  "max_scoring_latency_ms": 200,
+  "scenario": "just_above_threshold",
+  "rationale": "Score 0.67 just above threshold 0.65. Should persist."
+}

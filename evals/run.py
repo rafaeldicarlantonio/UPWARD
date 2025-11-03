@@ -427,64 +427,69 @@ class EvalRunner:
         print(f"{'='*80}")
         
         print(f"Total Cases: {summary.total_cases}")
-        print(f"Passed: {summary.passed_cases} ({summary.passed_cases/summary.total_cases*100:.1f}%)")
-        print(f"Failed: {summary.failed_cases} ({summary.failed_cases/summary.total_cases*100:.1f}%)")
+        if summary.total_cases > 0:
+            print(f"Passed: {summary.passed_cases} ({summary.passed_cases/summary.total_cases*100:.1f}%)")
+            print(f"Failed: {summary.failed_cases} ({summary.failed_cases/summary.total_cases*100:.1f}%)")
+        else:
+            print(f"Passed: 0")
+            print(f"Failed: 0")
         
-        print(f"\n📊 Latency Metrics:")
-        print(f"  Average: {summary.avg_latency_ms:.1f}ms")
-        print(f"  P50: {summary.latency_distribution['p50']:.1f}ms")
-        print(f"  P90: {summary.latency_distribution['p90']:.1f}ms")
-        print(f"  P95: {summary.p95_latency_ms:.1f}ms")
-        print(f"  P99: {summary.latency_distribution['p99']:.1f}ms")
-        print(f"  Max: {summary.max_latency_ms:.1f}ms")
+        if summary.total_cases > 0:
+            print(f"\n?? Latency Metrics:")
+            print(f"  Average: {summary.avg_latency_ms:.1f}ms")
+            print(f"  P50: {summary.latency_distribution.get('p50', 0.0):.1f}ms")
+            print(f"  P90: {summary.latency_distribution.get('p90', 0.0):.1f}ms")
+            print(f"  P95: {summary.p95_latency_ms:.1f}ms")
+            print(f"  P99: {summary.latency_distribution.get('p99', 0.0):.1f}ms")
+            print(f"  Max: {summary.max_latency_ms:.1f}ms")
         
-        print(f"\n⏱️  Timing Breakdown:")
-        print(f"  Retrieval: {summary.timing_breakdown['avg_retrieval_ms']:.1f}ms")
-        print(f"  Ranking: {summary.timing_breakdown['avg_ranking_ms']:.1f}ms")
-        print(f"  Packing: {summary.timing_breakdown['avg_packing_ms']:.1f}ms")
+            print(f"\n??  Timing Breakdown:")
+            print(f"  Retrieval: {summary.timing_breakdown['avg_retrieval_ms']:.1f}ms")
+            print(f"  Ranking: {summary.timing_breakdown['avg_ranking_ms']:.1f}ms")
+            print(f"  Packing: {summary.timing_breakdown['avg_packing_ms']:.1f}ms")
+            
+            print(f"\n?? Implicate Lift Metrics:")
+            print(f"  Total Cases: {summary.implicate_lift_metrics['total_cases']}")
+            print(f"  Successful Lifts: {summary.implicate_lift_metrics['successful_lifts']}")
+            print(f"  Success Rate: {summary.implicate_lift_metrics['lift_success_rate']*100:.1f}%")
+            print(f"  Avg Implicate Rank: {summary.implicate_lift_metrics['avg_implicate_rank']:.2f}")
+            
+            print(f"\n?? Contradiction Metrics:")
+            print(f"  Total Cases: {summary.contradiction_metrics['total_cases']}")
+            print(f"  Contradictions Detected: {summary.contradiction_metrics['contradictions_detected']}")
+            print(f"  Detection Accuracy: {summary.contradiction_metrics['detection_accuracy']*100:.1f}%")
+            print(f"  Avg Contradiction Score: {summary.contradiction_metrics['avg_contradiction_score']:.3f}")
         
-        print(f"\n🎯 Implicate Lift Metrics:")
-        print(f"  Total Cases: {summary.implicate_lift_metrics['total_cases']}")
-        print(f"  Successful Lifts: {summary.implicate_lift_metrics['successful_lifts']}")
-        print(f"  Success Rate: {summary.implicate_lift_metrics['lift_success_rate']*100:.1f}%")
-        print(f"  Avg Implicate Rank: {summary.implicate_lift_metrics['avg_implicate_rank']:.2f}")
-        
-        print(f"\n🔍 Contradiction Metrics:")
-        print(f"  Total Cases: {summary.contradiction_metrics['total_cases']}")
-        print(f"  Contradictions Detected: {summary.contradiction_metrics['contradictions_detected']}")
-        print(f"  Detection Accuracy: {summary.contradiction_metrics['detection_accuracy']*100:.1f}%")
-        print(f"  Avg Contradiction Score: {summary.contradiction_metrics['avg_contradiction_score']:.3f}")
-        
-        print(f"\n📈 Category Breakdown:")
+        print(f"\n?? Category Breakdown:")
         for category, stats in summary.category_breakdown.items():
             pass_rate = stats["passed"] / stats["total"] * 100 if stats["total"] > 0 else 0
             print(f"  {category}: {stats['passed']}/{stats['total']} ({pass_rate:.1f}%)")
         
-        print(f"\n⚠️  Constraint Violations:")
+        print(f"\n??  Constraint Violations:")
         for constraint, count in summary.constraint_violations.items():
             if count > 0:
                 print(f"  {constraint}: {count} violations")
         
         if summary.performance_issues:
-            print(f"\n🚨 Performance Issues:")
+            print(f"\n?? Performance Issues:")
             for issue in summary.performance_issues:
                 print(f"  {issue}")
         
         # Show failed cases
         failed_cases = [r for r in self.results if not r.passed]
         if failed_cases:
-            print(f"\n❌ Failed Cases:")
+            print(f"\n? Failed Cases:")
             for result in failed_cases:
                 print(f"  {result.case_id}: {result.error}")
         
         # Performance constraint validation
-        print(f"\n✅ Performance Constraints:")
+        print(f"\n? Performance Constraints:")
         p95_ok = summary.p95_latency_ms <= self.max_latency_ms
-        print(f"  P95 < {self.max_latency_ms}ms: {'✅ PASS' if p95_ok else '❌ FAIL'} ({summary.p95_latency_ms:.1f}ms)")
+        print(f"  P95 < {self.max_latency_ms}ms: {'? PASS' if p95_ok else '? FAIL'} ({summary.p95_latency_ms:.1f}ms)")
         
         constraint_violations_total = sum(summary.constraint_violations.values())
         constraints_ok = constraint_violations_total == 0
-        print(f"  All Constraints: {'✅ PASS' if constraints_ok else '❌ FAIL'} ({constraint_violations_total} violations)")
+        print(f"  All Constraints: {'? PASS' if constraints_ok else '? FAIL'} ({constraint_violations_total} violations)")
         
         return summary
 
@@ -541,7 +546,7 @@ def write_json_report(results: List[EvalResult], summary: EvalSummary, output_pa
     with open(output_path, 'w') as f:
         json.dump(report, f, indent=2)
     
-    print(f"\n📄 JSON report written to: {output_path}")
+    print(f"\n?? JSON report written to: {output_path}")
 
 def print_latency_histogram(results: List[EvalResult], buckets: List[int] = None):
     """Print ASCII histogram of latency distribution."""
@@ -561,7 +566,7 @@ def print_latency_histogram(results: List[EvalResult], buckets: List[int] = None
     # Add overflow bucket
     overflow = sum(1 for lat in latencies if lat > buckets[-1])
     
-    print(f"\n📊 Latency Histogram:")
+    print(f"\n?? Latency Histogram:")
     print(f"{'Bucket (ms)':<15} {'Count':<8} {'Percentage':<12} {'Bar'}")
     print("-" * 60)
     
@@ -573,14 +578,14 @@ def print_latency_histogram(results: List[EvalResult], buckets: List[int] = None
         count = bucket_counts.get(bucket, 0)
         pct = count / len(latencies) * 100 if latencies else 0
         bar_len = int(count / max_count * bar_width) if max_count > 0 else 0
-        bar = "█" * bar_len
+        bar = "?" * bar_len
         print(f"{prev}-{bucket} ms{' '*(10-len(str(bucket)))}{count:<8} {pct:>5.1f}%       {bar}")
         prev = bucket
     
     if overflow > 0:
         pct = overflow / len(latencies) * 100
         bar_len = int(overflow / max_count * bar_width) if max_count > 0 else 0
-        bar = "█" * bar_len
+        bar = "?" * bar_len
         print(f">{buckets[-1]} ms{' '*(10-len(str(buckets[-1])))}{overflow:<8} {pct:>5.1f}%       {bar}")
 
 def main():
@@ -613,7 +618,7 @@ def main():
     if args.config and os.path.exists(args.config):
         with open(args.config, 'r') as f:
             config = yaml.safe_load(f)
-        print(f"📋 Loaded config from: {args.config}")
+        print(f"?? Loaded config from: {args.config}")
     
     # Handle suite configuration
     suite_config = None
@@ -626,10 +631,10 @@ def main():
                 break
         
         if not suite_config:
-            print(f"❌ Suite '{args.suite}' not found in config")
+            print(f"? Suite '{args.suite}' not found in config")
             sys.exit(1)
         
-        print(f"🎯 Running suite: {suite_config['name']}")
+        print(f"?? Running suite: {suite_config['name']}")
         print(f"   Description: {suite_config.get('description', 'N/A')}")
         
         # Override with suite constraints
@@ -652,19 +657,19 @@ def main():
     runner.expected_implicate_k = args.implicate_k
     
     if args.ci_mode:
-        print("🔧 CI Mode: Enabling stricter performance constraints")
+        print("?? CI Mode: Enabling stricter performance constraints")
         runner.max_latency_ms = min(runner.max_latency_ms, 400)  # Stricter in CI
         runner.max_individual_latency_ms = min(runner.max_individual_latency_ms, 800)
     
     if args.skip_flaky:
-        print("⏭️  Skipping flaky tests")
+        print("??  Skipping flaky tests")
     
     # Show pipeline info
     if args.pipeline:
         pipeline_name = "Legacy Pipeline" if args.pipeline == "legacy" else "New REDO Pipeline"
-        print(f"🔧 Pipeline: {pipeline_name}")
+        print(f"?? Pipeline: {pipeline_name}")
     
-    print(f"🚀 Starting evaluation with constraints:")
+    print(f"?? Starting evaluation with constraints:")
     print(f"   P95 latency: < {runner.max_latency_ms}ms")
     print(f"   Individual latency: < {runner.max_individual_latency_ms}ms")
     print(f"   Explicate K: {runner.expected_explicate_k}")
@@ -718,18 +723,18 @@ def main():
         
         # Check for failed cases
         if summary.failed_cases > 0:
-            print(f"\n❌ Evaluation failed with {summary.failed_cases} failed cases")
+            print(f"\n? Evaluation failed with {summary.failed_cases} failed cases")
             exit_code = 1
         
         # Check performance constraints
         if summary.p95_latency_ms > runner.max_latency_ms:
-            print(f"\n❌ Performance constraint violated: P95 {summary.p95_latency_ms:.1f}ms > {runner.max_latency_ms}ms")
+            print(f"\n? Performance constraint violated: P95 {summary.p95_latency_ms:.1f}ms > {runner.max_latency_ms}ms")
             exit_code = 1
         
         # Check constraint violations
         constraint_violations_total = sum(summary.constraint_violations.values())
         if constraint_violations_total > 0:
-            print(f"\n❌ Constraint violations: {constraint_violations_total} total")
+            print(f"\n? Constraint violations: {constraint_violations_total} total")
             if args.ci_mode:
                 exit_code = 1  # Fail in CI mode
         
@@ -741,21 +746,21 @@ def main():
             if "min_pass_rate" in constraints:
                 min_pass_rate = constraints["min_pass_rate"]
                 if pass_rate < min_pass_rate:
-                    print(f"\n❌ Pass rate {pass_rate:.1%} below minimum {min_pass_rate:.1%}")
+                    print(f"\n? Pass rate {pass_rate:.1%} below minimum {min_pass_rate:.1%}")
                     exit_code = 1
         
         if exit_code == 0:
-            print(f"\n✅ All evaluations passed!")
+            print(f"\n? All evaluations passed!")
         else:
-            print(f"\n❌ Evaluation failed!")
+            print(f"\n? Evaluation failed!")
         
         sys.exit(exit_code)
         
     except KeyboardInterrupt:
-        print(f"\n⏹️  Evaluation interrupted by user")
+        print(f"\n??  Evaluation interrupted by user")
         sys.exit(130)
     except Exception as e:
-        print(f"\n💥 Evaluation failed with error: {e}")
+        print(f"\n?? Evaluation failed with error: {e}")
         if args.verbose:
             import traceback
             traceback.print_exc()

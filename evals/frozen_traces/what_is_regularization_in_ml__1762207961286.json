@@ -1,0 +1,49 @@
+{
+  "trace_id": "what_is_regularization_in_ml__1762207961286",
+  "timestamp": "2025-11-03T22:12:41Z",
+  "query": "What is regularization in ML?",
+  "role": "researcher",
+  "random_seed": 93465041,
+  "numpy_seed": null,
+  "candidates": [
+    {
+      "id": "doc_001",
+      "score": 0.95
+    },
+    {
+      "id": "doc_002",
+      "score": 0.89
+    },
+    {
+      "id": "doc_003",
+      "score": 0.75
+    }
+  ],
+  "top_k": 8,
+  "trace": {
+    "answer": "Machine learning models benefit from regularization.",
+    "citations": [
+      {
+        "source_id": "doc_001",
+        "text": "Regularization prevents overfitting"
+      },
+      {
+        "source_id": "doc_002",
+        "text": "Common techniques include L1 and L2"
+      }
+    ],
+    "orchestration": {
+      "retrieved": 10,
+      "ranked": 5,
+      "selected": 2
+    }
+  },
+  "trace_hash": "20aaf635bfd132bc",
+  "pipeline": "default",
+  "explicate_k": 16,
+  "implicate_k": 8,
+  "debug_metrics": {},
+  "frozen_by": "freezer",
+  "frozen_version": "1.0",
+  "notes": "Example frozen trace for testing"
+}

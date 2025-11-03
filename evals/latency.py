@@ -10,8 +10,14 @@ Budgets:
 - Packing p95 ≤ 550ms
 - Internal compare p95 ≤ 400ms
 - External compare p95 ≤ 2000ms (with timeouts)
+
+Slack Configuration:
+Budgets can be relaxed by a slack percentage via EVAL_LATENCY_SLACK_PERCENT
+environment variable. This is useful in CI environments where minor variance
+is acceptable.
 """
 
+import os
 import statistics
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
@@ -74,14 +80,21 @@ class LatencyGate:
     Latency budget gate for validating operation latencies.
     
     Computes percentiles and checks against configured budgets.
+    Supports slack via EVAL_LATENCY_SLACK_PERCENT environment variable.
     """
     
-    def __init__(self, budgets: Optional[Dict[str, float]] = None):
+    def __init__(
+        self,
+        budgets: Optional[Dict[str, float]] = None,
+        slack_percent: Optional[float] = None
+    ):
         """
         Initialize latency gate.
         
         Args:
             budgets: Optional custom budget overrides (operation -> ms)
+            slack_percent: Optional slack percentage (0-50). If None, reads from
+                          EVAL_LATENCY_SLACK_PERCENT environment variable.
         """
         self.budgets = budgets or {}
         self._default_budgets = {
@@ -90,10 +103,47 @@ class LatencyGate:
             "internal_compare": LatencyBudget.INTERNAL_COMPARE_P95.value,
             "external_compare": LatencyBudget.EXTERNAL_COMPARE_P95.value,
         }
+        
+        # Slack configuration
+        if slack_percent is not None:
+            self.slack_percent = self._validate_slack(slack_percent)
+        else:
+            # Read from environment variable
+            slack_env = os.getenv("EVAL_LATENCY_SLACK_PERCENT", "0")
+            try:
+                self.slack_percent = self._validate_slack(float(slack_env))
+            except ValueError:
+                print(f"Warning: Invalid EVAL_LATENCY_SLACK_PERCENT='{slack_env}', using 0%")
+                self.slack_percent = 0.0
     
-    def get_budget(self, operation: str) -> float:
-        """Get budget for operation (custom or default)."""
-        return self.budgets.get(operation, self._default_budgets.get(operation, 1000.0))
+    @staticmethod
+    def _validate_slack(slack: float) -> float:
+        """Validate and clamp slack percentage."""
+        if slack < 0:
+            return 0.0
+        if slack > 50:
+            print(f"Warning: Slack {slack}% exceeds maximum 50%, clamping to 50%")
+            return 50.0
+        return slack
+    
+    def get_budget(self, operation: str, apply_slack: bool = True) -> float:
+        """
+        Get budget for operation (custom or default), optionally with slack applied.
+        
+        Args:
+            operation: Operation name (e.g., "retrieval")
+            apply_slack: Whether to apply slack percentage (default: True)
+        
+        Returns:
+            Budget in milliseconds
+        """
+        base_budget = self.budgets.get(operation, self._default_budgets.get(operation, 1000.0))
+        
+        if apply_slack and self.slack_percent > 0:
+            # Apply slack: budget = base * (1 + slack/100)
+            return base_budget * (1 + self.slack_percent / 100)
+        
+        return base_budget
     
     def validate_retrieval(
         self,

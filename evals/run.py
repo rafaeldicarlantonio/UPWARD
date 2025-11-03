@@ -932,6 +932,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run evaluations for implicate lift and contradictions")
     parser.add_argument("--config", default="evals/config.yaml", help="Path to config YAML file")
     parser.add_argument("--suite", help="Suite name to run (from config)")
+    parser.add_argument("--profile", choices=["pr", "nightly", "full"], help="CI profile (pr, nightly, full)")
     parser.add_argument("--testsets", default="evals/testsets", help="Directory containing testset JSON files")
     parser.add_argument("--testset", help="Single testset file to run")
     parser.add_argument("--base-url", default=os.getenv("BASE_URL", "http://localhost:8000"), help="Base URL for API")
@@ -946,6 +947,7 @@ def main():
     parser.add_argument("--ci-mode", action="store_true", help="Enable CI mode with stricter constraints")
     parser.add_argument("--skip-flaky", action="store_true", help="Skip tests marked as flaky")
     parser.add_argument("--show-histogram", action="store_true", help="Show latency histogram")
+    parser.add_argument("--latency-slack", type=float, help="Latency budget slack percentage (0-50)")
     
     args = parser.parse_args()
     

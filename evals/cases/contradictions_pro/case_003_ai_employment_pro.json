@@ -1,0 +1,17 @@
+{
+  "id": "contradiction_003_pro",
+  "query": "How will AI impact employment rates?",
+  "category": "contradictions",
+  "role": "researcher",
+  "expected_contradictions": [
+    {
+      "subject": "ai_employment",
+      "claim_a_source": "doc_ai_jobs_positive_003",
+      "claim_b_source": "doc_ai_jobs_negative_004"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "redaction_expected": false,
+  "rationale": "Pro/researcher role variant with full employment analysis data."
+}

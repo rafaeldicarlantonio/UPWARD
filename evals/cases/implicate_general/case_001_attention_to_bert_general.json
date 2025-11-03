@@ -1,0 +1,12 @@
+{
+  "id": "implicate_001_general",
+  "query": "How does attention mechanism relate to BERT's contextual understanding?",
+  "category": "implicate_lift",
+  "role": "general",
+  "expected_source_ids": ["doc_transformer_003", "doc_bert_004"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "redaction_expected": true,
+  "rationale": "General role variant. Query requires bridging 'attention mechanism' with 'BERT contextual understanding'. Redacted content should not prevent correct retrieval of core concepts. Expected sources should still appear in top-k despite redaction."
+}

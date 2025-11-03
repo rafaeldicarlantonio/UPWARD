@@ -1,0 +1,12 @@
+{
+  "id": "implicate_006_pro",
+  "query": "How does scaling language models lead to emergent capabilities?",
+  "category": "implicate_lift",
+  "role": "researcher",
+  "expected_source_ids": ["doc_scaling_015", "doc_emergent_016"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "redaction_expected": false,
+  "rationale": "Pro/researcher role variant. Full access to scaling and emergent capability data."
+}

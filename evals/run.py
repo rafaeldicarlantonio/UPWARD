@@ -38,6 +38,11 @@ class EvalResult:
     lift_score: Optional[float] = None
     details: Dict[str, Any] = field(default_factory=dict)
     
+    # Role-based testing
+    role: str = "researcher"
+    redaction_expected: bool = False
+    redaction_detected: bool = False
+    
     # Enhanced timing metrics
     retrieval_latency_ms: float = 0.0
     ranking_latency_ms: float = 0.0
@@ -189,8 +194,9 @@ class EvalRunner:
         case_id = case["id"]
         prompt = case.get("prompt") or case.get("query", "")
         category = case.get("category", "unknown")
+        role = case.get("role", "researcher")  # Default to researcher, allow override
         
-        print(f"  Running {case_id}: {prompt[:50]}...")
+        print(f"  Running {case_id}: {prompt[:50]}... [role={role}]")
         
         # Initialize timing variables
         timing = {
@@ -217,7 +223,7 @@ class EvalRunner:
                 },
                 json={
                     "prompt": prompt,
-                    "role": "researcher",
+                    "role": role,  # Use role from test case
                     "debug": True,  # Enable debug for detailed metrics
                     "explicate_top_k": self.expected_explicate_k,
                     "implicate_top_k": self.expected_implicate_k
@@ -241,7 +247,9 @@ class EvalRunner:
                     total_latency_ms=total_latency_ms,
                     retrieval_latency_ms=retrieval_latency_ms,
                     meets_latency_constraint=total_latency_ms <= self.max_individual_latency_ms,
-                    error=f"HTTP {response.status_code}: {response.text}"
+                    error=f"HTTP {response.status_code}: {response.text}",
+                    role=role,
+                    redaction_expected=case.get("redaction_expected", False)
                 )
                 self._record_case_metrics(result)
                 return result
@@ -586,6 +594,9 @@ class EvalRunner:
                 override_reason=override_reason,
                 rejection_reason=rejection_reason,
                 scoring_latency_ms=scoring_latency_ms,
+                role=role,
+                redaction_expected=case.get("redaction_expected", False),
+                redaction_detected=data.get("redacted", False),
                 details={
                     "answer": answer[:200] + "..." if len(answer) > 200 else answer,
                     "citations": citations,
@@ -608,7 +619,9 @@ class EvalRunner:
                 latency_ms=total_latency_ms,
                 total_latency_ms=total_latency_ms,
                 meets_latency_constraint=False,
-                error=f"Exception: {str(e)}"
+                error=f"Exception: {str(e)}",
+                role=role,
+                redaction_expected=case.get("redaction_expected", False)
             )
             self._record_case_metrics(result)
             return result

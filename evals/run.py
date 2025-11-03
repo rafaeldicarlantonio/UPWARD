@@ -19,6 +19,9 @@ sys.path.insert(0, '/workspace')
 # Import latency gates
 from evals.latency import LatencyGate, check_latency_budgets, format_latency_report
 
+# Import metrics
+from core.metrics import EvalMetrics
+
 @dataclass
 class EvalResult:
     """Result of a single evaluation case."""
@@ -105,10 +108,11 @@ class EvalSummary:
 class EvalRunner:
     """Runs evaluations for implicate lift and contradiction surfacing."""
     
-    def __init__(self, base_url: str = None, api_key: str = None, enforce_latency_budgets: bool = True):
+    def __init__(self, base_url: str = None, api_key: str = None, enforce_latency_budgets: bool = True, suite_name: str = None):
         self.base_url = base_url or os.getenv("BASE_URL", "http://localhost:8000")
         self.api_key = api_key or os.getenv("X_API_KEY", "")
         self.results: List[EvalResult] = []
+        self.suite_name = suite_name or "default"
         
         # Performance constraints
         self.max_latency_ms = 500  # P95 constraint
@@ -123,6 +127,57 @@ class EvalRunner:
         # Latency budget gates
         self.enforce_latency_budgets = enforce_latency_budgets
         self.latency_gate = LatencyGate()
+    
+    def print_dashboard_line(self, summary: 'EvalSummary', suite_name: str = None):
+        """
+        Print a compact dashboard line for the suite.
+        
+        Format: [SUITE] Quality: 95.0% | Pass: 19/20 | Latency: p50=150ms p95=450ms | ?
+        """
+        suite = suite_name or self.suite_name
+        quality = (summary.passed_cases / summary.total_cases * 100) if summary.total_cases > 0 else 0.0
+        
+        # Status indicator
+        status = "?" if quality >= 90 else ("??" if quality >= 70 else "?")
+        
+        # Compact metrics
+        p50 = summary.latency_distribution.get("p50", 0) if summary.latency_distribution else 0
+        p95 = summary.p95_latency_ms
+        
+        dashboard = (
+            f"[{suite.upper()}] "
+            f"Quality: {quality:.1f}% | "
+            f"Pass: {summary.passed_cases}/{summary.total_cases} | "
+            f"Latency: p50={p50:.0f}ms p95={p95:.0f}ms | "
+            f"{status}"
+        )
+        
+        print("\n" + "="*80)
+        print(dashboard)
+        print("="*80)
+    
+    def _record_case_metrics(self, result: EvalResult):
+        """Record metrics for a single test case."""
+        # Record case result
+        EvalMetrics.record_case_result(
+            suite_name=self.suite_name,
+            case_id=result.case_id,
+            passed=result.passed,
+            category=result.category
+        )
+        
+        # Record latencies
+        if result.retrieval_latency_ms > 0:
+            EvalMetrics.record_latency("retrieval", result.retrieval_latency_ms, self.suite_name, result.category)
+        if result.packing_latency_ms > 0:
+            EvalMetrics.record_latency("packing", result.packing_latency_ms, self.suite_name, result.category)
+        if result.scoring_latency_ms > 0:  # Pareto scoring
+            EvalMetrics.record_latency("scoring", result.scoring_latency_ms, self.suite_name, result.category)
+        
+        # Record compare latency (external or internal)
+        if result.category == "external_compare" and result.total_latency_ms > 0:
+            operation = "compare"
+            EvalMetrics.record_latency(operation, result.total_latency_ms, self.suite_name, result.category)
         
     def run_single_case(self, case: Dict[str, Any], pipeline: str = None) -> EvalResult:
         """Run a single evaluation case with detailed timing.
@@ -177,7 +232,7 @@ class EvalRunner:
             retrieval_latency_ms = (timing["retrieval_end"] - timing["retrieval_start"]) * 1000
             
             if response.status_code != 200:
-                return EvalResult(
+                result = EvalResult(
                     case_id=case_id,
                     prompt=prompt,
                     category=category,
@@ -188,6 +243,8 @@ class EvalRunner:
                     meets_latency_constraint=total_latency_ms <= self.max_individual_latency_ms,
                     error=f"HTTP {response.status_code}: {response.text}"
                 )
+                self._record_case_metrics(result)
+                return result
             
             # Parse response
             data = response.json()
@@ -485,7 +542,7 @@ class EvalRunner:
             ranking_latency_ms = retrieval_metrics.get("ranking_latency_ms", 0.0)
             packing_latency_ms = retrieval_metrics.get("packing_latency_ms", 0.0)
             
-            return EvalResult(
+            result = EvalResult(
                 case_id=case_id,
                 prompt=prompt,
                 category=category,
@@ -538,10 +595,12 @@ class EvalRunner:
                     "timing": timing
                 }
             )
+            self._record_case_metrics(result)
+            return result
             
         except Exception as e:
             total_latency_ms = (time.time() - timing["total_start"]) * 1000
-            return EvalResult(
+            result = EvalResult(
                 case_id=case_id,
                 prompt=prompt,
                 category=category,
@@ -551,6 +610,8 @@ class EvalRunner:
                 meets_latency_constraint=False,
                 error=f"Exception: {str(e)}"
             )
+            self._record_case_metrics(result)
+            return result
     
     def run_testset(self, testset_path: str, pipeline: str = None) -> List[EvalResult]:
         """Run all cases in a testset.
@@ -608,6 +669,35 @@ class EvalRunner:
                 override_str = f" [OVERRIDE: {result.override_reason}]" if result.override_enabled else ""
                 rejection_str = f" (reason: {result.rejection_reason})" if result.rejection_reason else ""
                 print(f"    Score: {result.pareto_score:.3f}, Threshold: {result.pareto_threshold:.3f}, Persisted: {persist_str}{override_str}{rejection_str}, Scoring: {result.scoring_latency_ms:.1f}ms")
+        
+        # Record suite-level metrics and print dashboard
+        if results:
+            suite_start_time = time.time()
+            summary = self.generate_summary()
+            suite_duration_ms = (time.time() - suite_start_time) * 1000
+            
+            # Determine success
+            success = all(r.passed for r in results)
+            
+            # Record suite metrics
+            EvalMetrics.record_suite_run(
+                suite_name=self.suite_name,
+                success=success,
+                duration_ms=suite_duration_ms,
+                cases_count=len(results)
+            )
+            
+            # Set quality score
+            quality_score = summary.passed_cases / summary.total_cases if summary.total_cases > 0 else 0.0
+            EvalMetrics.set_quality_score(self.suite_name, quality_score)
+            
+            # Record failures if any
+            if not success:
+                failure_type = "functional" if any(not r.passed for r in results) else "latency"
+                EvalMetrics.record_suite_failure(self.suite_name, failure_type)
+            
+            # Print dashboard line
+            self.print_dashboard_line(summary, self.suite_name)
         
         return results
     

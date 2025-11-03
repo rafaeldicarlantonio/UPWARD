@@ -465,13 +465,118 @@ class ImplicateRefreshMetrics:
             observe_histogram("implicate_refresh.deduplication_ratio", duplicates / original_count)
 
 
+class EvalMetrics:
+    """Specific metrics for evaluation suite runs."""
+    
+    @staticmethod
+    def record_suite_run(suite_name: str, success: bool, duration_ms: float, cases_count: int):
+        """
+        Record a suite run.
+        
+        Args:
+            suite_name: Name of the suite
+            success: Whether the suite passed
+            duration_ms: Suite duration in milliseconds
+            cases_count: Number of test cases
+        """
+        increment_counter("eval.suite.runs", labels={"suite": suite_name, "success": str(success).lower()})
+        observe_histogram("eval.suite.duration_ms", duration_ms, labels={"suite": suite_name})
+        observe_histogram("eval.suite.cases_count", cases_count, labels={"suite": suite_name})
+    
+    @staticmethod
+    def record_suite_failure(suite_name: str, failure_type: str = "functional"):
+        """
+        Record a suite failure.
+        
+        Args:
+            suite_name: Name of the suite
+            failure_type: Type of failure (functional, latency, constraint)
+        """
+        increment_counter("eval.suite.failures", labels={"suite": suite_name, "type": failure_type})
+    
+    @staticmethod
+    def record_case_result(suite_name: str, case_id: str, passed: bool, category: str = "unknown"):
+        """
+        Record a test case result.
+        
+        Args:
+            suite_name: Name of the suite
+            case_id: Test case ID
+            passed: Whether the test passed
+            category: Test category
+        """
+        increment_counter("eval.cases.total", labels={"suite": suite_name, "category": category})
+        if passed:
+            increment_counter("eval.cases.passed", labels={"suite": suite_name, "category": category})
+        else:
+            increment_counter("eval.cases.failed", labels={"suite": suite_name, "category": category})
+    
+    @staticmethod
+    def record_latency(operation: str, latency_ms: float, suite_name: str = None, category: str = None):
+        """
+        Record operation latency.
+        
+        Args:
+            operation: Operation name (retrieval, packing, compare)
+            latency_ms: Latency in milliseconds
+            suite_name: Optional suite name
+            category: Optional test category
+        """
+        labels = {"operation": operation}
+        if suite_name:
+            labels["suite"] = suite_name
+        if category:
+            labels["category"] = category
+        
+        observe_histogram(f"eval.latency.{operation}_ms", latency_ms, labels=labels)
+    
+    @staticmethod
+    def record_trace_replay(success: bool, trace_id: str = None):
+        """
+        Record a trace replay attempt.
+        
+        Args:
+            success: Whether replay succeeded
+            trace_id: Optional trace ID
+        """
+        labels = {"success": str(success).lower()}
+        if trace_id:
+            labels["trace_id"] = trace_id[:16]  # Truncate for cardinality
+        
+        increment_counter("eval.trace.replay_success" if success else "eval.trace.replay_failure", labels=labels)
+    
+    @staticmethod
+    def set_quality_score(suite_name: str, score: float):
+        """
+        Set quality score (success rate) for a suite.
+        
+        Args:
+            suite_name: Name of the suite
+            score: Quality score (0.0 - 1.0)
+        """
+        set_gauge("eval.suite.quality_score", score, labels={"suite": suite_name})
+    
+    @staticmethod
+    def get_suite_quality_score(suite_name: str) -> float:
+        """
+        Get the quality score for a suite.
+        
+        Args:
+            suite_name: Name of the suite
+        
+        Returns:
+            Quality score (0.0 - 1.0)
+        """
+        return get_gauge("eval.suite.quality_score", labels={"suite": suite_name})
+
+
 # Export the main functions and classes
 __all__ = [
     'MetricsCollector', 'MetricCounter', 'MetricGauge', 'MetricHistogram',
     'increment_counter', 'set_gauge', 'observe_histogram', 'get_counter', 
     'get_gauge', 'get_histogram_stats', 'get_all_metrics', 'reset_metrics',
     'OrchestratorMetrics', 'LedgerMetrics', 'RetrievalMetrics', 'IngestMetrics',
-    'ImplicateRefreshMetrics', 'ExternalCompareMetrics', 'time_operation', 
+    'ImplicateRefreshMetrics', 'ExternalCompareMetrics', 'EvalMetrics', 'time_operation', 
     'record_api_call', 'record_error', 'record_feature_flag_usage',
     # RBAC metrics
     'record_rbac_resolution', 'record_rbac_check', 'record_role_distribution',

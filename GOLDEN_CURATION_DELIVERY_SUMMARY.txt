@@ -1,0 +1,481 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    GOLDEN SET CURATION TOOLS                                 ║
+║                      DELIVERY SUMMARY                                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PROJECT: Golden set curation tools with diffing and review process
+ACCEPTANCE: Adding items enforces unique IDs; diffs show before/after evidence
+            IDs; documentation explains review steps
+
+════════════════════════════════════════════════════════════════════════════════
+DELIVERABLES
+════════════════════════════════════════════════════════════════════════════════
+
+✅ 1. Golden Addition Tool (tools/golden_add.py - 496 lines)
+
+Features:
+  • Add new golden items with stable IDs
+  • Update existing items with version tracking
+  • ID validation and uniqueness enforcement
+  • Human approval requirement (approved_by, rationale)
+  • Interactive and command-line modes
+  • Suite-specific fields for all eval suites
+
+Usage:
+  # Add item
+  python tools/golden_add.py \
+    --suite implicate_lift \
+    --id golden_bridge_001 \
+    --query "Test query" \
+    --expected-sources "src_001,src_002" \
+    --rationale "Test case for..." \
+    --approved-by "user@example.com"
+  
+  # Update item
+  python tools/golden_add.py \
+    --suite implicate_lift \
+    --id golden_bridge_001 \
+    --update \
+    --expected-sources "src_001,src_002,src_003" \
+    --rationale "Added src_003" \
+    --approved-by "user@example.com"
+  
+  # Interactive mode
+  python tools/golden_add.py --interactive
+
+Validation:
+  • IDs must start with 'golden_'
+  • IDs must be unique within suite
+  • Email must be valid format
+  • Rationale is required
+  • Suite-specific fields validated
+
+✅ 2. Golden Diff Tool (tools/golden_diff.py - 478 lines)
+
+Features:
+  • Compare current vs committed versions
+  • Show added, removed, modified items
+  • Highlight evidence ID changes (before/after)
+  • Git integration for historical comparison
+  • Review summary with checklist
+  • Verbose mode for detailed changes
+
+Usage:
+  # Show changes since last commit
+  python tools/golden_diff.py --suite implicate_lift
+  
+  # Compare against specific commit
+  python tools/golden_diff.py --suite pareto_gate --git-ref HEAD~3
+  
+  # Verbose diff with full details
+  python tools/golden_diff.py --suite implicate_lift --verbose
+  
+  # Generate review summary
+  python tools/golden_diff.py --suite implicate_lift --review
+
+Output:
+  • Summary: counts of added/removed/modified
+  • Added items (➕): ID, approver, rationale
+  • Removed items (➖): ID
+  • Modified items (📝): version change, field changes
+  • Evidence ID changes: "Removed: X, Added: Y"
+
+✅ 3. Comprehensive Documentation (docs/evals-curation.md - 600+ lines)
+
+Sections:
+  • Overview: Why golden sets matter
+  • Directory structure
+  • Golden item structure (with examples)
+  • Required fields
+  • Tool usage (both tools)
+  • Curation workflow (6 steps)
+  • Review process (5 steps)
+  • Common scenarios (3 detailed examples)
+  • Best practices (DOs and DON'Ts)
+  • Troubleshooting
+  • Quick reference card
+
+Workflow Steps:
+  1. Identify need
+  2. Create item (golden_add.py)
+  3. Verify evidence IDs
+  4. Review changes (golden_diff.py)
+  5. Get approval (checklist)
+  6. Commit
+
+Review Steps:
+  1. Generate diff
+  2. Check diff output (added/modified/removed)
+  3. Validate evidence IDs
+  4. Test against system
+  5. Approve or request changes
+
+✅ 4. Unit Tests (tests/test_golden_curation.py - 335 lines)
+
+Test Coverage:
+  • 20 tests across 5 test classes
+  • 100% pass rate
+
+Test Classes:
+  1. TestGoldenSetManager (9 tests)
+     - Directory creation
+     - Add/update items
+     - ID validation (format, uniqueness)
+     - Get/list items
+  
+  2. TestEmailValidation (3 tests)
+     - Valid email
+     - Invalid email (no @, empty)
+  
+  3. TestGoldenDiff (5 tests)
+     - Diff detection (added, removed, modified)
+     - Change computation
+     - Diff formatting
+  
+  4. TestWorkflow (1 test)
+     - Complete add-review-update workflow
+  
+  5. TestAcceptanceCriteria (3 tests)
+     - Unique ID enforcement
+     - Evidence ID changes shown in diff
+     - Human approval required
+
+════════════════════════════════════════════════════════════════════════════════
+ACCEPTANCE CRITERIA VALIDATION
+════════════════════════════════════════════════════════════════════════════════
+
+✅ Adding Items Enforces Unique IDs
+   IMPLEMENTATION:
+     • validate_id() checks ID uniqueness
+     • Raises ValueError if ID exists
+     • Requires --update flag for existing IDs
+   
+   TEST:
+     • test_unique_id_enforcement
+     • test_validate_id_uniqueness
+   
+   VERIFICATION:
+     $ python tools/golden_add.py --suite implicate_lift --id golden_bridge_001 ...
+     ❌ Error: ID 'golden_bridge_001' already exists. Use --update to modify.
+
+✅ Diffs Show Before/After Evidence IDs
+   IMPLEMENTATION:
+     • compute_changes() tracks field-level changes
+     • Special formatting for expected_sources
+     • Shows "Removed: X, Added: Y"
+   
+   TEST:
+     • test_diff_shows_evidence_id_changes
+     • test_compute_changes
+   
+   VERIFICATION:
+     $ python tools/golden_diff.py --suite implicate_lift --verbose
+     
+     📝 Modified Items:
+       ~ golden_bridge_001
+         Changes:
+           expected_sources:
+             - Removed: src_old_001
+             + Added: src_new_003
+
+✅ Documentation Explains Review Steps
+   IMPLEMENTATION:
+     • docs/evals-curation.md
+     • Review Process section with 5 detailed steps
+     • Common scenarios with examples
+     • Quick reference card
+   
+   COVERAGE:
+     • When to review (4 triggers)
+     • How to generate diff
+     • How to check output (added/modified/removed)
+     • How to validate evidence IDs
+     • How to test against system
+     • How to approve or request changes
+   
+   VERIFICATION:
+     • See docs/evals-curation.md § "Review Process"
+     • Step-by-step instructions with examples
+     • Checklists for thoroughness
+
+════════════════════════════════════════════════════════════════════════════════
+KEY TECHNICAL FEATURES
+════════════════════════════════════════════════════════════════════════════════
+
+1. STABLE IDs WITH VERSIONING
+   • IDs never change: golden_<suite>_<number>
+   • Version tracking (starts at 1, increments on update)
+   • Update history (updated_at, updated_by, update_rationale)
+
+2. HUMAN APPROVAL REQUIREMENT
+   • Every item requires approved_by (email)
+   • Every change requires rationale (text)
+   • Validation enforces these fields
+   • Traceability for all changes
+
+3. EVIDENCE ID TRACKING
+   • expected_sources field for source IDs
+   • Diff highlights added/removed sources
+   • Validates source ID format
+   • Documents source changes
+
+4. GIT INTEGRATION
+   • Compare against any git ref (HEAD~1, main, etc.)
+   • Leverages git history for diffs
+   • Commit messages track approvals
+
+5. INTERACTIVE AND CLI MODES
+   • Interactive mode for ease of use
+   • CLI mode for automation/scripts
+   • Flexible workflows
+
+════════════════════════════════════════════════════════════════════════════════
+GOLDEN ITEM STRUCTURE
+════════════════════════════════════════════════════════════════════════════════
+
+Required Fields:
+  • id: Unique identifier (golden_*)
+  • suite: Suite name
+  • added_at: ISO 8601 timestamp
+  • approved_by: Approver email
+  • rationale: Clear reason
+  • version: Version number (1+)
+
+Suite-Specific Fields:
+  
+  Implicate Lift:
+    • query: Query text
+    • expected_sources: Array of source IDs
+    • category: "implicate_lift"
+  
+  Contradictions:
+    • query: Query text
+    • expected_contradiction: Boolean
+    • expected_claims: Array of claims
+    • category: "contradiction"
+  
+  External Compare:
+    • query: Query text
+    • expected_mode: "off" or "on"
+    • expected_parity: Boolean
+    • category: "external_compare"
+  
+  Pareto Gate:
+    • hypothesis: Hypothesis text
+    • expected_score: Float (0-1)
+    • expected_persisted: Boolean
+    • category: "pareto_gate"
+
+Update Fields (added on update):
+  • updated_at: ISO 8601 timestamp
+  • updated_by: Updater email
+  • update_rationale: Reason for update
+  • version: Incremented version
+
+════════════════════════════════════════════════════════════════════════════════
+USAGE EXAMPLES
+════════════════════════════════════════════════════════════════════════════════
+
+ADD IMPLICATE LIFT ITEM:
+  python tools/golden_add.py \
+    --suite implicate_lift \
+    --id golden_bridge_002 \
+    --query "How are renewable energy and climate policy connected?" \
+    --expected-sources "src_renewable_111,src_climate_222" \
+    --rationale "Tests policy-technology bridge" \
+    --approved-by "curator@example.com"
+
+UPDATE PARETO GATE ITEM:
+  python tools/golden_add.py \
+    --suite pareto_gate \
+    --id golden_pareto_005 \
+    --update \
+    --expected-score 0.70 \
+    --rationale "Threshold adjustment after model v2.0" \
+    --approved-by "ml-eng@example.com"
+
+VIEW DIFF:
+  python tools/golden_diff.py --suite implicate_lift --verbose
+
+REVIEW SUMMARY:
+  python tools/golden_diff.py --suite implicate_lift --review
+
+INTERACTIVE MODE:
+  python tools/golden_add.py --interactive
+
+════════════════════════════════════════════════════════════════════════════════
+DIRECTORY STRUCTURE
+════════════════════════════════════════════════════════════════════════════════
+
+evals/golden/
+├── implicate_lift/
+│   └── golden_set.jsonl
+├── contradictions/
+│   └── golden_set.jsonl
+├── external_compare/
+│   └── golden_set.jsonl
+└── pareto_gate/
+    └── golden_set.jsonl
+
+Each suite has its own golden_set.jsonl with one item per line.
+
+════════════════════════════════════════════════════════════════════════════════
+TEST RESULTS
+════════════════════════════════════════════════════════════════════════════════
+
+Unit Tests:
+  $ python3 -m unittest tests.test_golden_curation -v
+  
+  Ran 20 tests in 0.009s
+  OK ✅
+
+Integration Tests:
+  # Add item
+  $ python tools/golden_add.py --suite implicate_lift --id golden_bridge_001 ...
+  ✅ Added golden item 'golden_bridge_001' to implicate_lift
+  
+  # Diff
+  $ python tools/golden_diff.py --suite implicate_lift
+  Summary:
+    Added:    1 items
+    Removed:  0 items
+    Modified: 0 items
+  
+  # Update
+  $ python tools/golden_add.py --suite implicate_lift --id golden_bridge_001 --update ...
+  ✅ Updated golden item 'golden_bridge_001' in implicate_lift
+     Version: 2
+  
+  # Diff shows changes
+  $ python tools/golden_diff.py --suite implicate_lift --verbose
+  📝 Modified Items:
+    ~ golden_bridge_001
+      Version: 1 → 2
+      Changes:
+        expected_sources:
+          + Added: src_exploration_999
+
+Validation Tests:
+  # Duplicate ID rejected
+  $ python tools/golden_add.py --suite implicate_lift --id golden_bridge_001 ...
+  ❌ Error: ID 'golden_bridge_001' already exists. Use --update to modify.
+  
+  # Invalid ID format rejected
+  $ python tools/golden_add.py --suite implicate_lift --id invalid_format ...
+  ❌ Error: Golden item IDs must start with 'golden_'
+
+════════════════════════════════════════════════════════════════════════════════
+FILES CREATED
+════════════════════════════════════════════════════════════════════════════════
+
+Tools:
+  tools/golden_add.py                        # Addition tool (496 lines)
+  tools/golden_diff.py                       # Diff tool (478 lines)
+
+Documentation:
+  docs/evals-curation.md                     # Comprehensive guide (600+ lines)
+  GOLDEN_CURATION_DELIVERY_SUMMARY.txt       # This file
+
+Tests:
+  tests/test_golden_curation.py              # Unit tests (335 lines, 20 tests)
+
+Golden Sets (created during testing):
+  evals/golden/implicate_lift/golden_set.jsonl
+  evals/golden/pareto_gate/golden_set.jsonl
+
+════════════════════════════════════════════════════════════════════════════════
+BEST PRACTICES
+════════════════════════════════════════════════════════════════════════════════
+
+DO:
+  ✅ Use descriptive IDs (golden_bridge_temporal_001)
+  ✅ Write clear rationale explaining WHY
+  ✅ Verify evidence IDs exist before committing
+  ✅ Run diff before committing
+  ✅ Keep evidence IDs stable (only update when necessary)
+  ✅ Version incrementally
+  ✅ Document approvals
+  ✅ Test after changes
+
+DON'T:
+  ❌ Skip approval (every change needs human approval)
+  ❌ Reuse IDs (each item has unique, stable ID)
+  ❌ Commit blindly (always review diff first)
+  ❌ Use invalid evidence (verify all source IDs)
+  ❌ Make mass changes (update individually with rationale)
+  ❌ Forget rationale (every change needs "why")
+  ❌ Use generic emails (use real approver emails)
+
+════════════════════════════════════════════════════════════════════════════════
+WORKFLOW DIAGRAM
+════════════════════════════════════════════════════════════════════════════════
+
+1. Identify Need
+      ↓
+2. Create Item (golden_add.py)
+      ↓
+3. Verify Evidence IDs
+      ↓
+4. Review Changes (golden_diff.py)
+      ↓
+5. Get Approval
+    ├─ Self-review checklist
+    └─ Peer review (if significant)
+      ↓
+6. Commit & Push
+
+Review Process:
+      ↓
+1. Generate Diff (golden_diff.py)
+      ↓
+2. Check Output
+    ├─ Added items: verify ID, rationale, evidence
+    ├─ Modified items: verify version, rationale, changes
+    └─ Removed items: understand why
+      ↓
+3. Validate Evidence IDs
+      ↓
+4. Test Against System
+      ↓
+5. Approve or Request Changes
+
+════════════════════════════════════════════════════════════════════════════════
+NEXT STEPS FOR USER
+════════════════════════════════════════════════════════════════════════════════
+
+1. Review documentation:
+   $ cat docs/evals-curation.md
+
+2. Run tests to verify:
+   $ python3 -m unittest tests.test_golden_curation -v
+
+3. Add first golden item:
+   $ python tools/golden_add.py --interactive
+
+4. View changes:
+   $ python tools/golden_diff.py --suite <suite> --verbose
+
+5. Review and approve:
+   - Check diff output
+   - Verify evidence IDs
+   - Test against system
+   - Commit with approval
+
+6. Integrate into workflow:
+   - Add to PR review process
+   - Use for regression testing
+   - Maintain golden sets regularly
+
+════════════════════════════════════════════════════════════════════════════════
+STATUS
+════════════════════════════════════════════════════════════════════════════════
+
+✅ IMPLEMENTATION: COMPLETE
+✅ TESTS: ALL PASSING (20/20)
+✅ DOCUMENTATION: COMPLETE
+✅ ACCEPTANCE CRITERIA: ALL MET
+✅ WORKFLOW: VERIFIED
+
+Ready for production use!
+
+════════════════════════════════════════════════════════════════════════════════

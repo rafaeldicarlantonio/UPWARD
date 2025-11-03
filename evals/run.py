@@ -16,6 +16,13 @@ from pathlib import Path
 # Add workspace to path
 sys.path.insert(0, '/workspace')
 
+from evals.latency import (
+    LatencyGate,
+    OperationType,
+    check_latency_budget,
+    format_latency_report
+)
+
 @dataclass
 class EvalResult:
     """Result of a single evaluation case."""
@@ -94,11 +101,15 @@ class EvalSummary:
     implicate_lift_metrics: Dict[str, Any] = field(default_factory=dict)
     contradiction_metrics: Dict[str, Any] = field(default_factory=dict)
     timing_breakdown: Dict[str, float] = field(default_factory=dict)
+    
+    # Latency budget gates
+    latency_gates_passed: bool = True
+    latency_gate_failures: List[str] = field(default_factory=list)
 
 class EvalRunner:
     """Runs evaluations for implicate lift and contradiction surfacing."""
     
-    def __init__(self, base_url: str = None, api_key: str = None):
+    def __init__(self, base_url: str = None, api_key: str = None, enforce_latency_budgets: bool = True):
         self.base_url = base_url or os.getenv("BASE_URL", "http://localhost:8000")
         self.api_key = api_key or os.getenv("X_API_KEY", "")
         self.results: List[EvalResult] = []
@@ -112,6 +123,10 @@ class EvalRunner:
         # Timing infrastructure
         self.timing_enabled = True
         self.performance_warnings = []
+        
+        # Latency budget gates
+        self.enforce_latency_budgets = enforce_latency_budgets
+        self.latency_gate = LatencyGate()
         
     def run_single_case(self, case: Dict[str, Any], pipeline: str = None) -> EvalResult:
         """Run a single evaluation case with detailed timing.
@@ -694,6 +709,28 @@ class EvalRunner:
             "detection_accuracy": sum(1 for r in contradiction_results if r.meets_contradiction_constraint) / len(contradiction_results) if contradiction_results else 0
         }
         
+        # Check latency budgets
+        latency_gates_passed = True
+        latency_gate_failures = []
+        
+        if self.enforce_latency_budgets:
+            # Record latencies by operation type
+            retrieval_latencies = [r.retrieval_latency_ms for r in self.results if r.retrieval_latency_ms > 0]
+            packing_latencies = [r.packing_latency_ms for r in self.results if r.packing_latency_ms > 0]
+            scoring_latencies = [r.scoring_latency_ms for r in self.results if r.scoring_latency_ms > 0]
+            
+            if retrieval_latencies:
+                self.latency_gate.record_batch(OperationType.RETRIEVAL, retrieval_latencies)
+            if packing_latencies:
+                self.latency_gate.record_batch(OperationType.PACKING, packing_latencies)
+            if scoring_latencies:
+                self.latency_gate.record_batch(OperationType.SCORING, scoring_latencies)
+            
+            # Check budgets
+            latency_gates_passed = self.latency_gate.check_budgets()
+            if not latency_gates_passed:
+                latency_gate_failures = self.latency_gate.get_failures()
+        
         # Performance issues
         performance_issues = []
         if p95_latency_ms > self.max_latency_ms:
@@ -725,7 +762,9 @@ class EvalRunner:
             constraint_violations=constraint_violations,
             implicate_lift_metrics=implicate_lift_metrics,
             contradiction_metrics=contradiction_metrics,
-            timing_breakdown=timing_breakdown
+            timing_breakdown=timing_breakdown,
+            latency_gates_passed=latency_gates_passed,
+            latency_gate_failures=latency_gate_failures
         )
     
     def print_summary(self):

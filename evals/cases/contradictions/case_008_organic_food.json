@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_008",
+  "query": "Is organic food more nutritious than conventional food?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "organic_food_nutrition",
+      "claim_a_source": "doc_organic_nutritious_015",
+      "claim_b_source": "doc_organic_similar_016"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Contradictory nutritional findings - one showing 47% more antioxidants, another showing no difference."
+}

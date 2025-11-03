@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_003",
+  "query": "Will AI create or destroy more jobs?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "ai_employment",
+      "claim_a_source": "doc_ai_job_loss_005",
+      "claim_b_source": "doc_ai_job_creation_006"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Conflicting predictions about AI's impact on employment - one predicting 47% job loss, another predicting 58% job growth."
+}

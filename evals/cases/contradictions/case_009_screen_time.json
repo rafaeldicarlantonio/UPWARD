@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_009",
+  "query": "How does screen time affect child development?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "screen_time_effects",
+      "claim_a_source": "doc_screen_time_harmful_017",
+      "claim_b_source": "doc_screen_time_neutral_018"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Conflicting developmental impacts - one showing 43% lower test scores, another showing no negative correlation."
+}

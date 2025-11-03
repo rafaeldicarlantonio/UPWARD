@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_007",
+  "query": "What is the impact of social media on teen mental health?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "social_media_mental_health",
+      "claim_a_source": "doc_social_media_harmful_013",
+      "claim_b_source": "doc_social_media_beneficial_014"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Conflicting mental health impacts - one showing 71% higher depression rates, another showing 34% improved wellbeing."
+}

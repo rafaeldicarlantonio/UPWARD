@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_010",
+  "query": "Does intermittent fasting provide health benefits?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "intermittent_fasting",
+      "claim_a_source": "doc_intermittent_fasting_effective_019",
+      "claim_b_source": "doc_intermittent_fasting_ineffective_020"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Contradictory effectiveness data - one showing 8% weight loss and metabolic benefits, another showing minimal 2% loss."
+}

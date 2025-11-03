@@ -49,6 +49,13 @@ class EvalResult:
     found_in_top_k: List[str] = field(default_factory=list)
     recall_at_k: float = 0.0
     top_k: int = 8
+    
+    # Contradiction metrics
+    expected_contradictions: List[Dict[str, Any]] = field(default_factory=list)
+    actual_contradictions: List[Dict[str, Any]] = field(default_factory=list)
+    has_badge: bool = False
+    badge_data: Dict[str, Any] = field(default_factory=dict)
+    contradiction_completeness: float = 0.0
 
 @dataclass
 class EvalSummary:
@@ -198,6 +205,86 @@ class EvalRunner:
                     missing_ids = [id for id in expected_source_ids if id not in found_in_top_k]
                     error_parts.append(f"Missing expected IDs in top-{expected_in_top_k}: {missing_ids}")
             
+            # Contradiction validation
+            expected_contradictions = case.get("expected_contradictions", [])
+            actual_contradictions = data.get("contradictions", [])
+            has_badge = "badge" in data
+            badge_data = data.get("badge", {})
+            contradiction_completeness = 0.0
+            
+            if category == "contradictions" and expected_contradictions:
+                # Check that contradictions array is non-empty
+                if not actual_contradictions:
+                    passed = False
+                    error_parts.append("Contradictions array is empty")
+                else:
+                    # Validate each expected contradiction
+                    for expected in expected_contradictions:
+                        expected_subject = expected.get("subject")
+                        claim_a_src = expected.get("claim_a_source")
+                        claim_b_src = expected.get("claim_b_source")
+                        
+                        # Find matching contradiction by subject
+                        found_contradiction = None
+                        for actual in actual_contradictions:
+                            if actual.get("subject") == expected_subject:
+                                found_contradiction = actual
+                                break
+                        
+                        if not found_contradiction:
+                            passed = False
+                            error_parts.append(f"Missing contradiction for subject: {expected_subject}")
+                            continue
+                        
+                        # Validate both evidence IDs present
+                        claim_a = found_contradiction.get("claim_a", {})
+                        claim_b = found_contradiction.get("claim_b", {})
+                        found_a_src = claim_a.get("source_id")
+                        found_b_src = claim_b.get("source_id")
+                        
+                        if not found_a_src or not found_b_src:
+                            passed = False
+                            error_parts.append(f"Missing source IDs for subject {expected_subject}")
+                        elif claim_a_src and claim_b_src:
+                            # Check if expected sources are present (in either order)
+                            expected_srcs = {claim_a_src, claim_b_src}
+                            found_srcs = {found_a_src, found_b_src}
+                            if expected_srcs != found_srcs:
+                                passed = False
+                                error_parts.append(
+                                    f"Wrong sources for {expected_subject}: "
+                                    f"expected {expected_srcs}, found {found_srcs}"
+                                )
+                        
+                        # Calculate completeness
+                        has_subject = "subject" in found_contradiction
+                        has_claim_a = "claim_a" in found_contradiction
+                        has_claim_b = "claim_b" in found_contradiction
+                        has_src_a = found_a_src is not None
+                        has_src_b = found_b_src is not None
+                        contradiction_completeness = sum([
+                            has_subject, has_claim_a, has_claim_b, has_src_a, has_src_b
+                        ]) / 5.0
+                
+                # Check badge presence
+                expected_badge = case.get("expected_badge", False)
+                if expected_badge and not has_badge:
+                    passed = False
+                    error_parts.append("Missing badge in answer payload")
+                elif has_badge:
+                    # Validate badge structure
+                    if badge_data.get("type") != "contradiction":
+                        passed = False
+                        error_parts.append(f"Wrong badge type: {badge_data.get('type')}")
+                
+                # Check packing latency
+                max_packing_latency = case.get("max_packing_latency_ms", 550)
+                if packing_latency_ms > max_packing_latency:
+                    passed = False
+                    error_parts.append(
+                        f"Packing latency {packing_latency_ms:.1f}ms exceeds {max_packing_latency}ms"
+                    )
+            
             # Check must_include terms
             if must_include:
                 missing_terms = [term for term in must_include if term.lower() not in answer]
@@ -292,6 +379,11 @@ class EvalRunner:
                 found_in_top_k=found_in_top_k,
                 recall_at_k=recall_at_k,
                 top_k=expected_in_top_k,
+                expected_contradictions=expected_contradictions,
+                actual_contradictions=actual_contradictions,
+                has_badge=has_badge,
+                badge_data=badge_data,
+                contradiction_completeness=contradiction_completeness,
                 details={
                     "answer": answer[:200] + "..." if len(answer) > 200 else answer,
                     "citations": citations,
@@ -351,6 +443,12 @@ class EvalRunner:
             # Print recall@k for implicate lift cases
             if case.get("category") == "implicate_lift" and result.expected_source_ids:
                 print(f"    Recall@{result.top_k}: {result.recall_at_k:.2f} ({len(result.found_in_top_k)}/{len(result.expected_source_ids)} docs)")
+            
+            # Print contradiction detection for contradiction cases
+            if case.get("category") == "contradictions":
+                num_contradictions = len(result.actual_contradictions)
+                has_badge_str = "?" if result.has_badge else "?"
+                print(f"    Contradictions: {num_contradictions}, Badge: {has_badge_str}, Completeness: {result.contradiction_completeness:.2f}")
         
         return results
     

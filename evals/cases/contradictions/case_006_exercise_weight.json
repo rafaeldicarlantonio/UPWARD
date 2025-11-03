@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_006",
+  "query": "Is exercise effective for weight loss?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "exercise_weight_loss",
+      "claim_a_source": "doc_exercise_weight_011",
+      "claim_b_source": "doc_exercise_noweight_012"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Contradictory weight loss results - one showing 12kg loss, another showing only 1.5kg loss."
+}

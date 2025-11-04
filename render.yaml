@@ -15,6 +15,10 @@ services:
       sync: false
     - key: PINECONE_INDEX
       value: memories
+    - key: PINECONE_EXPLICATE_INDEX
+      value: memories-explicate
+    - key: PINECONE_IMPLICATE_INDEX
+      value: memories-implicate
     - key: PINECONE_CLOUD
       value: aws
     - key: PINECONE_REGION

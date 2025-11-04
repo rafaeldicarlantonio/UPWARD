@@ -1,554 +1,362 @@
 #!/usr/bin/env python3
 """
-Latency budget gates for evaluation suites.
+evals/latency.py — Latency gates for CI/CD.
 
-Defines budget thresholds and helpers to validate latencies across different
-operations: retrieval, packing, internal compare, external compare.
+Enforces performance SLOs by checking p95 latencies against budgets.
+Fails CI when budgets are exceeded with actionable error messages.
 
 Budgets:
-- Retrieval p95 ≤ 500ms
-- Packing p95 ≤ 550ms
-- Internal compare p95 ≤ 400ms
-- External compare p95 ≤ 2000ms (with timeouts)
+- retrieval p95 ≤ 500ms (dual-index)
+- packing p95 ≤ 550ms
+- reviewer p95 ≤ 500ms (when enabled)
+- overall /chat p95 ≤ 1200ms
 
-Slack Configuration:
-Budgets can be relaxed by a slack percentage via EVAL_LATENCY_SLACK_PERCENT
-environment variable. This is useful in CI environments where minor variance
-is acceptable.
+Supports ±10% slack via LATENCY_SLACK_PERCENT env var for nightly runs.
 """
 
 import os
-import statistics
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
+import sys
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass
 from enum import Enum
 
+# Add workspace to path for imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-class LatencyBudget(Enum):
-    """Latency budget thresholds in milliseconds."""
-    RETRIEVAL_P95 = 500
-    PACKING_P95 = 550
-    INTERNAL_COMPARE_P95 = 400
-    EXTERNAL_COMPARE_P95 = 2000
-    
-    # Additional thresholds
-    RETRIEVAL_P99 = 800
-    PACKING_P99 = 800
-    TOTAL_P95 = 1500  # Total end-to-end latency
+from core.metrics import get_histogram_stats
 
 
-@dataclass
-class LatencyViolation:
-    """Represents a latency budget violation."""
-    operation: str
-    metric: str  # e.g., "p95", "p99", "max"
-    measured: float  # measured latency in ms
-    budget: float  # budget threshold in ms
-    excess: float  # amount over budget
-    count: int  # number of samples
-    
-    def __str__(self) -> str:
-        """Human-readable violation message."""
-        return (
-            f"{self.operation} {self.metric} latency {self.measured:.1f}ms "
-            f"exceeds budget {self.budget:.0f}ms by {self.excess:.1f}ms "
-            f"({self.count} samples)"
-        )
+class SeverityLevel(Enum):
+    """Severity level for gate violations."""
+    ERROR = "error"      # Hard failure (CI fails)
+    WARNING = "warning"  # Soft failure (CI passes with warning)
+    INFO = "info"        # Informational only
 
 
 @dataclass
-class LatencyGateResult:
-    """Result of latency gate validation."""
+class LatencyBudget:
+    """Definition of a latency budget."""
+    metric_name: str           # Metric to check (e.g., "retrieval_ms")
+    p95_budget_ms: float       # p95 budget in milliseconds
+    description: str           # Human-readable description
+    labels: Optional[Dict[str, str]] = None  # Optional metric labels
+    enabled_by_default: bool = True          # Whether gate is enabled by default
+
+
+@dataclass
+class GateResult:
+    """Result of a latency gate check."""
+    metric_name: str
+    budget_ms: float
+    actual_p95: float
     passed: bool
-    violations: List[LatencyViolation] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    metrics: Dict[str, Any] = field(default_factory=dict)
-    
-    def __str__(self) -> str:
-        """Human-readable result summary."""
-        if self.passed:
-            return "✅ All latency budgets passed"
-        else:
-            lines = ["❌ Latency budget violations:"]
-            for violation in self.violations:
-                lines.append(f"  • {violation}")
-            return "\n".join(lines)
+    severity: SeverityLevel
+    message: str
+    slack_applied_percent: float = 0.0
 
 
-class LatencyGate:
+class LatencyGates:
     """
-    Latency budget gate for validating operation latencies.
+    Latency gate checker for CI/CD.
     
-    Computes percentiles and checks against configured budgets.
-    Supports slack via EVAL_LATENCY_SLACK_PERCENT environment variable.
+    Checks p95 latencies against defined budgets and fails CI
+    when budgets are exceeded.
     """
+    
+    # Default latency budgets
+    DEFAULT_BUDGETS = [
+        LatencyBudget(
+            metric_name="retrieval_ms",
+            p95_budget_ms=500.0,
+            description="Retrieval (dual-index) p95",
+            labels={"method": "dual"}
+        ),
+        LatencyBudget(
+            metric_name="graph_expand_ms",
+            p95_budget_ms=200.0,
+            description="Graph expansion p95"
+        ),
+        LatencyBudget(
+            metric_name="packing_ms",
+            p95_budget_ms=550.0,
+            description="Context packing p95"
+        ),
+        LatencyBudget(
+            metric_name="reviewer_ms",
+            p95_budget_ms=500.0,
+            description="Reviewer call p95",
+            enabled_by_default=False  # Only when reviewer is enabled
+        ),
+        LatencyBudget(
+            metric_name="chat_total_ms",
+            p95_budget_ms=1200.0,
+            description="Overall /chat endpoint p95"
+        ),
+    ]
     
     def __init__(
         self,
-        budgets: Optional[Dict[str, float]] = None,
+        budgets: Optional[List[LatencyBudget]] = None,
         slack_percent: Optional[float] = None
     ):
         """
-        Initialize latency gate.
+        Initialize latency gates.
         
         Args:
-            budgets: Optional custom budget overrides (operation -> ms)
-            slack_percent: Optional slack percentage (0-50). If None, reads from
-                          EVAL_LATENCY_SLACK_PERCENT environment variable.
+            budgets: Optional custom budgets (defaults to DEFAULT_BUDGETS)
+            slack_percent: Optional slack percentage (0-100) to add to budgets
+                          (default: from LATENCY_SLACK_PERCENT env var or 0)
         """
-        self.budgets = budgets or {}
-        self._default_budgets = {
-            "retrieval": LatencyBudget.RETRIEVAL_P95.value,
-            "packing": LatencyBudget.PACKING_P95.value,
-            "internal_compare": LatencyBudget.INTERNAL_COMPARE_P95.value,
-            "external_compare": LatencyBudget.EXTERNAL_COMPARE_P95.value,
-        }
+        self.budgets = budgets or self.DEFAULT_BUDGETS.copy()
         
-        # Slack configuration
-        if slack_percent is not None:
-            self.slack_percent = self._validate_slack(slack_percent)
-        else:
-            # Read from environment variable
-            slack_env = os.getenv("EVAL_LATENCY_SLACK_PERCENT", "0")
-            try:
-                self.slack_percent = self._validate_slack(float(slack_env))
-            except ValueError:
-                print(f"Warning: Invalid EVAL_LATENCY_SLACK_PERCENT='{slack_env}', using 0%")
-                self.slack_percent = 0.0
+        # Get slack from env var if not provided
+        if slack_percent is None:
+            slack_percent = float(os.getenv("LATENCY_SLACK_PERCENT", "0"))
+        
+        self.slack_percent = max(0.0, min(slack_percent, 10.0))  # Cap at 10%
     
-    @staticmethod
-    def _validate_slack(slack: float) -> float:
-        """Validate and clamp slack percentage."""
-        if slack < 0:
-            return 0.0
-        if slack > 50:
-            print(f"Warning: Slack {slack}% exceeds maximum 50%, clamping to 50%")
-            return 50.0
-        return slack
-    
-    def get_budget(self, operation: str, apply_slack: bool = True) -> float:
+    def check_gate(self, budget: LatencyBudget) -> GateResult:
         """
-        Get budget for operation (custom or default), optionally with slack applied.
+        Check a single latency gate.
         
         Args:
-            operation: Operation name (e.g., "retrieval")
-            apply_slack: Whether to apply slack percentage (default: True)
-        
+            budget: Budget to check
+            
         Returns:
-            Budget in milliseconds
+            GateResult with pass/fail status and details
         """
-        base_budget = self.budgets.get(operation, self._default_budgets.get(operation, 1000.0))
+        # Get histogram stats
+        stats = get_histogram_stats(budget.metric_name, labels=budget.labels)
         
-        if apply_slack and self.slack_percent > 0:
-            # Apply slack: budget = base * (1 + slack/100)
-            return base_budget * (1 + self.slack_percent / 100)
+        actual_p95 = stats.get("p95", 0.0)
+        count = stats.get("count", 0)
         
-        return base_budget
-    
-    def validate_retrieval(
-        self,
-        latencies: List[float],
-        budget: Optional[float] = None
-    ) -> LatencyGateResult:
-        """
-        Validate retrieval latencies against budget.
+        # Apply slack to budget
+        adjusted_budget = budget.p95_budget_ms * (1.0 + self.slack_percent / 100.0)
         
-        Args:
-            latencies: List of retrieval latency measurements (ms)
-            budget: Optional budget override (default: 500ms p95)
-        
-        Returns:
-            LatencyGateResult with pass/fail and violations
-        """
-        return self._validate_operation(
-            operation="retrieval",
-            latencies=latencies,
-            budget=budget or self.get_budget("retrieval"),
-            percentile=95
-        )
-    
-    def validate_packing(
-        self,
-        latencies: List[float],
-        budget: Optional[float] = None
-    ) -> LatencyGateResult:
-        """
-        Validate packing latencies against budget.
-        
-        Args:
-            latencies: List of packing latency measurements (ms)
-            budget: Optional budget override (default: 550ms p95)
-        
-        Returns:
-            LatencyGateResult with pass/fail and violations
-        """
-        return self._validate_operation(
-            operation="packing",
-            latencies=latencies,
-            budget=budget or self.get_budget("packing"),
-            percentile=95
-        )
-    
-    def validate_internal_compare(
-        self,
-        latencies: List[float],
-        budget: Optional[float] = None
-    ) -> LatencyGateResult:
-        """
-        Validate internal compare latencies against budget.
-        
-        Args:
-            latencies: List of internal compare latency measurements (ms)
-            budget: Optional budget override (default: 400ms p95)
-        
-        Returns:
-            LatencyGateResult with pass/fail and violations
-        """
-        return self._validate_operation(
-            operation="internal_compare",
-            latencies=latencies,
-            budget=budget or self.get_budget("internal_compare"),
-            percentile=95
-        )
-    
-    def validate_external_compare(
-        self,
-        latencies: List[float],
-        budget: Optional[float] = None
-    ) -> LatencyGateResult:
-        """
-        Validate external compare latencies against budget.
-        
-        Args:
-            latencies: List of external compare latency measurements (ms)
-            budget: Optional budget override (default: 2000ms p95)
-        
-        Returns:
-            LatencyGateResult with pass/fail and violations
-        """
-        return self._validate_operation(
-            operation="external_compare",
-            latencies=latencies,
-            budget=budget or self.get_budget("external_compare"),
-            percentile=95
-        )
-    
-    def validate_all(
-        self,
-        retrieval_latencies: List[float],
-        packing_latencies: List[float],
-        internal_compare_latencies: Optional[List[float]] = None,
-        external_compare_latencies: Optional[List[float]] = None
-    ) -> LatencyGateResult:
-        """
-        Validate all operation latencies against budgets.
-        
-        Args:
-            retrieval_latencies: Retrieval latency measurements
-            packing_latencies: Packing latency measurements
-            internal_compare_latencies: Optional internal compare measurements
-            external_compare_latencies: Optional external compare measurements
-        
-        Returns:
-            Combined LatencyGateResult for all operations
-        """
-        all_violations = []
-        all_warnings = []
-        all_metrics = {}
-        
-        # Validate retrieval
-        if retrieval_latencies:
-            result = self.validate_retrieval(retrieval_latencies)
-            all_violations.extend(result.violations)
-            all_warnings.extend(result.warnings)
-            all_metrics["retrieval"] = result.metrics
-        
-        # Validate packing
-        if packing_latencies:
-            result = self.validate_packing(packing_latencies)
-            all_violations.extend(result.violations)
-            all_warnings.extend(result.warnings)
-            all_metrics["packing"] = result.metrics
-        
-        # Validate internal compare
-        if internal_compare_latencies:
-            result = self.validate_internal_compare(internal_compare_latencies)
-            all_violations.extend(result.violations)
-            all_warnings.extend(result.warnings)
-            all_metrics["internal_compare"] = result.metrics
-        
-        # Validate external compare
-        if external_compare_latencies:
-            result = self.validate_external_compare(external_compare_latencies)
-            all_violations.extend(result.violations)
-            all_warnings.extend(result.warnings)
-            all_metrics["external_compare"] = result.metrics
-        
-        return LatencyGateResult(
-            passed=len(all_violations) == 0,
-            violations=all_violations,
-            warnings=all_warnings,
-            metrics=all_metrics
-        )
-    
-    def _validate_operation(
-        self,
-        operation: str,
-        latencies: List[float],
-        budget: float,
-        percentile: int = 95
-    ) -> LatencyGateResult:
-        """
-        Internal helper to validate operation latencies.
-        
-        Args:
-            operation: Operation name (e.g., "retrieval")
-            latencies: List of latency measurements (ms)
-            budget: Budget threshold (ms)
-            percentile: Percentile to check (default: 95)
-        
-        Returns:
-            LatencyGateResult
-        """
-        if not latencies:
-            return LatencyGateResult(
+        # Check if gate passes
+        if count == 0:
+            # No data - treat as pass with warning
+            return GateResult(
+                metric_name=budget.metric_name,
+                budget_ms=budget.p95_budget_ms,
+                actual_p95=0.0,
                 passed=True,
-                warnings=[f"No {operation} latencies to validate"],
-                metrics={}
+                severity=SeverityLevel.WARNING,
+                message=f"⚠️  {budget.description}: No data (count=0)",
+                slack_applied_percent=self.slack_percent
             )
         
-        # Compute percentiles
-        metrics = self._compute_percentiles(latencies)
+        passed = actual_p95 <= adjusted_budget
         
-        # Check p95 against budget
-        p_key = f"p{percentile}"
-        measured = metrics[p_key]
-        
-        violations = []
-        warnings = []
-        
-        if measured > budget:
-            excess = measured - budget
-            violation = LatencyViolation(
-                operation=operation,
-                metric=p_key,
-                measured=measured,
-                budget=budget,
-                excess=excess,
-                count=len(latencies)
+        if passed:
+            message = (
+                f"✅ {budget.description}: "
+                f"{actual_p95:.1f}ms ≤ {adjusted_budget:.1f}ms "
+                f"(budget: {budget.p95_budget_ms:.0f}ms"
             )
-            violations.append(violation)
-        
-        # Check for warning conditions
-        # Warn if p50 is close to budget (within 20%)
-        if metrics["p50"] > budget * 0.8:
-            warnings.append(
-                f"{operation} p50 ({metrics['p50']:.1f}ms) is close to "
-                f"p95 budget ({budget:.0f}ms)"
+            if self.slack_percent > 0:
+                message += f", +{self.slack_percent}% slack"
+            message += f", count: {count})"
+            
+            severity = SeverityLevel.INFO
+        else:
+            overage = actual_p95 - adjusted_budget
+            overage_percent = (overage / adjusted_budget) * 100.0
+            
+            message = (
+                f"❌ {budget.description}: "
+                f"{actual_p95:.1f}ms > {adjusted_budget:.1f}ms "
+                f"(budget: {budget.p95_budget_ms:.0f}ms"
             )
+            if self.slack_percent > 0:
+                message += f", +{self.slack_percent}% slack"
+            message += f", overage: +{overage:.1f}ms / +{overage_percent:.1f}%, count: {count})"
+            
+            severity = SeverityLevel.ERROR
         
-        # Warn if max is significantly over budget
-        if metrics["max"] > budget * 2:
-            warnings.append(
-                f"{operation} max latency ({metrics['max']:.1f}ms) is "
-                f"significantly over budget ({budget:.0f}ms)"
-            )
-        
-        return LatencyGateResult(
-            passed=len(violations) == 0,
-            violations=violations,
-            warnings=warnings,
-            metrics=metrics
+        return GateResult(
+            metric_name=budget.metric_name,
+            budget_ms=budget.p95_budget_ms,
+            actual_p95=actual_p95,
+            passed=passed,
+            severity=severity,
+            message=message,
+            slack_applied_percent=self.slack_percent
         )
     
-    @staticmethod
-    def _compute_percentiles(latencies: List[float]) -> Dict[str, float]:
+    def check_all_gates(
+        self,
+        enabled_gates: Optional[List[str]] = None
+    ) -> List[GateResult]:
         """
-        Compute latency percentiles.
+        Check all configured latency gates.
         
         Args:
-            latencies: List of latency measurements
-        
+            enabled_gates: Optional list of metric names to check
+                          (default: all enabled_by_default budgets)
+            
         Returns:
-            Dictionary with p50, p90, p95, p99, max, avg
+            List of GateResults
         """
-        if not latencies:
-            return {
-                "p50": 0.0,
-                "p90": 0.0,
-                "p95": 0.0,
-                "p99": 0.0,
-                "max": 0.0,
-                "avg": 0.0,
-                "count": 0
-            }
+        results = []
         
-        sorted_latencies = sorted(latencies)
-        n = len(sorted_latencies)
+        for budget in self.budgets:
+            # Skip if not in enabled_gates list (when provided)
+            if enabled_gates is not None:
+                if budget.metric_name not in enabled_gates:
+                    continue
+            else:
+                # Use enabled_by_default
+                if not budget.enabled_by_default:
+                    continue
+            
+            result = self.check_gate(budget)
+            results.append(result)
         
-        return {
-            "p50": sorted_latencies[int(n * 0.50)] if n > 1 else sorted_latencies[0],
-            "p90": sorted_latencies[int(n * 0.90)] if n > 1 else sorted_latencies[0],
-            "p95": sorted_latencies[int(n * 0.95)] if n > 1 else sorted_latencies[0],
-            "p99": sorted_latencies[int(n * 0.99)] if n > 1 else sorted_latencies[0],
-            "max": max(latencies),
-            "avg": statistics.mean(latencies),
-            "count": n
-        }
-
-
-def check_latency_budgets(
-    results: List[Any],
-    gate: Optional[LatencyGate] = None
-) -> LatencyGateResult:
-    """
-    Check latency budgets for a list of evaluation results.
+        return results
     
-    Extracts latencies from results and validates against budgets.
+    def print_results(self, results: List[GateResult], verbose: bool = True):
+        """
+        Print gate results to stdout.
+        
+        Args:
+            results: List of GateResults to print
+            verbose: Whether to print all results or only failures
+        """
+        print("\n" + "="*80)
+        print("LATENCY GATE RESULTS")
+        print("="*80)
+        
+        if self.slack_percent > 0:
+            print(f"ℹ️  Slack applied: +{self.slack_percent}% to all budgets")
+            print()
+        
+        # Print results
+        for result in results:
+            if verbose or result.severity == SeverityLevel.ERROR:
+                print(result.message)
+        
+        print()
+        
+        # Summary
+        total = len(results)
+        passed = sum(1 for r in results if r.passed)
+        failed = total - passed
+        
+        print(f"Summary: {passed}/{total} gates passed")
+        
+        if failed > 0:
+            print(f"⚠️  {failed} gate(s) failed")
+        else:
+            print("✅ All gates passed")
+        
+        print("="*80 + "\n")
+    
+    def fail_if_exceeded(
+        self,
+        results: List[GateResult],
+        exit_on_failure: bool = True
+    ) -> bool:
+        """
+        Check if any gates failed and optionally exit.
+        
+        Args:
+            results: List of GateResults to check
+            exit_on_failure: Whether to sys.exit(1) on failure
+            
+        Returns:
+            True if all gates passed, False otherwise
+        """
+        failed_results = [r for r in results if not r.passed and r.severity == SeverityLevel.ERROR]
+        
+        if failed_results:
+            print("\n❌ LATENCY GATES FAILED\n", file=sys.stderr)
+            print("The following latency budgets were exceeded:\n", file=sys.stderr)
+            
+            for result in failed_results:
+                print(f"  • {result.message}", file=sys.stderr)
+            
+            print("\nActionable steps:", file=sys.stderr)
+            print("  1. Review recent changes that may have impacted performance", file=sys.stderr)
+            print("  2. Profile slow operations to identify bottlenecks", file=sys.stderr)
+            print("  3. Consider optimizing hot paths or adding caching", file=sys.stderr)
+            print("  4. If budgets are unrealistic, update them in evals/latency.py\n", file=sys.stderr)
+            
+            if exit_on_failure:
+                sys.exit(1)
+            
+            return False
+        
+        return True
+
+
+def check_latency_gates(
+    slack_percent: Optional[float] = None,
+    enabled_gates: Optional[List[str]] = None,
+    verbose: bool = True,
+    exit_on_failure: bool = True
+) -> bool:
+    """
+    Convenience function to check latency gates.
     
     Args:
-        results: List of EvalResult objects
-        gate: Optional LatencyGate instance (creates default if None)
-    
-    Returns:
-        LatencyGateResult with validation status
-    """
-    if gate is None:
-        gate = LatencyGate()
-    
-    # Extract latencies by operation type
-    retrieval_latencies = []
-    packing_latencies = []
-    internal_compare_latencies = []
-    external_compare_latencies = []
-    
-    for result in results:
-        # Retrieval latencies
-        if hasattr(result, 'retrieval_latency_ms') and result.retrieval_latency_ms > 0:
-            retrieval_latencies.append(result.retrieval_latency_ms)
+        slack_percent: Optional slack percentage (0-10)
+        enabled_gates: Optional list of metric names to check
+        verbose: Whether to print all results
+        exit_on_failure: Whether to exit on failure
         
-        # Packing latencies
-        if hasattr(result, 'packing_latency_ms') and result.packing_latency_ms > 0:
-            packing_latencies.append(result.packing_latency_ms)
-        
-        # Compare latencies (categorize by type)
-        if hasattr(result, 'category'):
-            if result.category == "internal_compare" and hasattr(result, 'latency_ms'):
-                internal_compare_latencies.append(result.latency_ms)
-            elif result.category == "external_compare" and hasattr(result, 'latency_ms'):
-                external_compare_latencies.append(result.latency_ms)
-    
-    # Validate all
-    return gate.validate_all(
-        retrieval_latencies=retrieval_latencies,
-        packing_latencies=packing_latencies,
-        internal_compare_latencies=internal_compare_latencies if internal_compare_latencies else None,
-        external_compare_latencies=external_compare_latencies if external_compare_latencies else None
-    )
-
-
-def format_latency_report(result: LatencyGateResult) -> str:
-    """
-    Format latency gate result as human-readable report.
-    
-    Args:
-        result: LatencyGateResult to format
-    
     Returns:
-        Formatted report string
+        True if all gates passed, False otherwise
     """
-    lines = []
-    
-    # Status
-    if result.passed:
-        lines.append("✅ LATENCY BUDGETS: PASSED")
-    else:
-        lines.append("❌ LATENCY BUDGETS: FAILED")
-    
-    lines.append("")
-    
-    # Metrics
-    if result.metrics:
-        lines.append("Latency Metrics:")
-        for operation, metrics in result.metrics.items():
-            if isinstance(metrics, dict):
-                lines.append(f"  {operation}:")
-                lines.append(f"    p50: {metrics.get('p50', 0):.1f}ms")
-                lines.append(f"    p95: {metrics.get('p95', 0):.1f}ms")
-                lines.append(f"    p99: {metrics.get('p99', 0):.1f}ms")
-                lines.append(f"    max: {metrics.get('max', 0):.1f}ms")
-                lines.append(f"    avg: {metrics.get('avg', 0):.1f}ms")
-                lines.append(f"    count: {metrics.get('count', 0)}")
-        lines.append("")
-    
-    # Violations
-    if result.violations:
-        lines.append("Budget Violations:")
-        for violation in result.violations:
-            lines.append(f"  ❌ {violation}")
-        lines.append("")
-    
-    # Warnings
-    if result.warnings:
-        lines.append("Warnings:")
-        for warning in result.warnings:
-            lines.append(f"  ⚠️  {warning}")
-        lines.append("")
-    
-    return "\n".join(lines)
-
-
-# Convenience functions for common checks
-def assert_retrieval_budget(latencies: List[float], budget: float = 500) -> None:
-    """Assert retrieval latencies are under budget (raises on failure)."""
-    gate = LatencyGate()
-    result = gate.validate_retrieval(latencies, budget=budget)
-    if not result.passed:
-        raise AssertionError(str(result))
-
-
-def assert_packing_budget(latencies: List[float], budget: float = 550) -> None:
-    """Assert packing latencies are under budget (raises on failure)."""
-    gate = LatencyGate()
-    result = gate.validate_packing(latencies, budget=budget)
-    if not result.passed:
-        raise AssertionError(str(result))
-
-
-def assert_internal_compare_budget(latencies: List[float], budget: float = 400) -> None:
-    """Assert internal compare latencies are under budget (raises on failure)."""
-    gate = LatencyGate()
-    result = gate.validate_internal_compare(latencies, budget=budget)
-    if not result.passed:
-        raise AssertionError(str(result))
-
-
-def assert_external_compare_budget(latencies: List[float], budget: float = 2000) -> None:
-    """Assert external compare latencies are under budget (raises on failure)."""
-    gate = LatencyGate()
-    result = gate.validate_external_compare(latencies, budget=budget)
-    if not result.passed:
-        raise AssertionError(str(result))
+    gates = LatencyGates(slack_percent=slack_percent)
+    results = gates.check_all_gates(enabled_gates=enabled_gates)
+    gates.print_results(results, verbose=verbose)
+    return gates.fail_if_exceeded(results, exit_on_failure=exit_on_failure)
 
 
 if __name__ == "__main__":
-    # Example usage
-    print("Latency Budget Gates - Example Usage")
-    print("=" * 60)
+    """
+    CLI entry point for latency gate checks.
     
-    # Simulate some latencies
-    retrieval_latencies = [200, 250, 300, 350, 400, 450, 480]
-    packing_latencies = [100, 150, 200, 250, 300]
+    Usage:
+        python evals/latency.py                    # Check all gates
+        python evals/latency.py --slack 10         # Apply 10% slack
+        LATENCY_SLACK_PERCENT=5 python evals/latency.py  # Via env var
+    """
+    import argparse
     
-    # Create gate
-    gate = LatencyGate()
+    parser = argparse.ArgumentParser(description="Check latency gates")
+    parser.add_argument(
+        "--slack",
+        type=float,
+        default=None,
+        help="Slack percentage to apply to budgets (0-10)"
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=True,
+        help="Print all results (default: True)"
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Only print failures"
+    )
+    parser.add_argument(
+        "--gates",
+        nargs="+",
+        help="Specific gates to check (default: all enabled)"
+    )
     
-    # Validate retrieval
-    result = gate.validate_retrieval(retrieval_latencies)
-    print(format_latency_report(result))
+    args = parser.parse_args()
     
-    # Simulate over-budget scenario
-    print("\nSimulating over-budget retrieval:")
-    slow_retrieval = [400, 500, 550, 600, 650, 700, 750]
-    result = gate.validate_retrieval(slow_retrieval)
-    print(format_latency_report(result))
+    success = check_latency_gates(
+        slack_percent=args.slack,
+        enabled_gates=args.gates,
+        verbose=not args.quiet,
+        exit_on_failure=True
+    )
+    
+    sys.exit(0 if success else 1)

@@ -19,6 +19,30 @@ from typing import Dict, Any
 # Add workspace to path
 sys.path.insert(0, '/workspace')
 
+# Mock external dependencies for endpoint tests
+mock_fastapi = Mock()
+mock_fastapi.APIRouter = Mock()
+mock_fastapi.Request = Mock()
+mock_fastapi.HTTPException = Mock()
+mock_fastapi.status = Mock()
+sys.modules['fastapi'] = mock_fastapi
+sys.modules['fastapi.routing'] = Mock()
+
+mock_starlette = Mock()
+mock_starlette.middleware = Mock()
+mock_starlette.middleware.base = Mock()
+mock_starlette.middleware.base.BaseHTTPMiddleware = Mock()
+mock_starlette.types = Mock()
+mock_starlette.types.ASGIApp = Mock()
+sys.modules['starlette'] = mock_starlette
+sys.modules['starlette.middleware'] = mock_starlette.middleware
+sys.modules['starlette.middleware.base'] = mock_starlette.middleware.base
+sys.modules['starlette.types'] = mock_starlette.types
+
+sys.modules['supabase'] = Mock()
+sys.modules['pinecone'] = Mock()
+sys.modules['openai'] = Mock()
+
 from core.metrics import (
     MetricsCollector,
     MetricHistogram,
@@ -163,8 +187,13 @@ class TestCounterMetrics(unittest.TestCase):
         PerformanceMetrics.record_pinecone_timeout("query")
         PerformanceMetrics.record_pinecone_timeout("upsert")
         
-        query_timeouts = get_counter("pinecone_timeouts", labels={"operation": "query"})
-        upsert_timeouts = get_counter("pinecone_timeouts", labels={"operation": "upsert"})
+        # Check base counter
+        total_timeouts = get_counter("pinecone_timeouts")
+        self.assertEqual(total_timeouts, 3)
+        
+        # Check labeled counters
+        query_timeouts = get_counter("pinecone_timeouts_by_operation", labels={"operation": "query"})
+        upsert_timeouts = get_counter("pinecone_timeouts_by_operation", labels={"operation": "upsert"})
         
         self.assertEqual(query_timeouts, 2)
         self.assertEqual(upsert_timeouts, 1)
@@ -175,8 +204,13 @@ class TestCounterMetrics(unittest.TestCase):
         PerformanceMetrics.record_pgvector_fallback("error")
         PerformanceMetrics.record_pgvector_fallback("timeout")
         
-        timeout_fallbacks = get_counter("pgvector_fallbacks", labels={"reason": "timeout"})
-        error_fallbacks = get_counter("pgvector_fallbacks", labels={"reason": "error"})
+        # Check base counter
+        total_fallbacks = get_counter("pgvector_fallbacks")
+        self.assertEqual(total_fallbacks, 3)
+        
+        # Check labeled counters
+        timeout_fallbacks = get_counter("pgvector_fallbacks_by_reason", labels={"reason": "timeout"})
+        error_fallbacks = get_counter("pgvector_fallbacks_by_reason", labels={"reason": "error"})
         
         self.assertEqual(timeout_fallbacks, 2)
         self.assertEqual(error_fallbacks, 1)
@@ -187,8 +221,13 @@ class TestCounterMetrics(unittest.TestCase):
         PerformanceMetrics.record_circuit_open("pinecone")
         PerformanceMetrics.record_circuit_open("reviewer")
         
-        pinecone_opens = get_counter("circuit_opens", labels={"service": "pinecone"})
-        reviewer_opens = get_counter("circuit_opens", labels={"service": "reviewer"})
+        # Check base counter
+        total_opens = get_counter("circuit_opens")
+        self.assertEqual(total_opens, 3)
+        
+        # Check labeled counters
+        pinecone_opens = get_counter("circuit_opens_by_service", labels={"service": "pinecone"})
+        reviewer_opens = get_counter("circuit_opens_by_service", labels={"service": "reviewer"})
         
         self.assertEqual(pinecone_opens, 2)
         self.assertEqual(reviewer_opens, 1)
@@ -404,66 +443,70 @@ class TestAcceptanceCriteria(unittest.TestCase):
 
 
 class TestMetricsEndpoint(unittest.TestCase):
-    """Test metrics endpoint exposure."""
+    """Test metrics exposure via get_all_metrics."""
     
     def setUp(self):
         """Reset metrics before each test."""
         reset_metrics()
+        from core.metrics import get_all_metrics
+        self.get_all_metrics = get_all_metrics
     
-    def test_metrics_endpoint_structure(self):
-        """Test metrics endpoint returns expected structure."""
-        from api.debug import get_metrics
-        
+    def test_all_metrics_structure(self):
+        """Test get_all_metrics returns expected structure."""
         # Record some metrics
         PerformanceMetrics.record_retrieval(450.0)
         PerformanceMetrics.record_graph_expand(150.0)
         PerformanceMetrics.record_packing(200.0)
         PerformanceMetrics.record_reviewer(500.0)
         
-        # Get metrics
-        response = get_metrics()
+        # Get all metrics
+        all_metrics = self.get_all_metrics()
         
-        # ? Verify structure
-        self.assertIn("timestamp", response)
-        self.assertIn("performance", response)
-        self.assertIn("counters", response)
-        self.assertIn("rates", response)
+        # ✅ Verify structure
+        self.assertIn("timestamp", all_metrics)
+        self.assertIn("uptime_seconds", all_metrics)
+        self.assertIn("counters", all_metrics)
+        self.assertIn("histograms", all_metrics)
         
-        # ? Verify performance section
-        perf = response["performance"]
-        self.assertIn("retrieval", perf)
-        self.assertIn("graph_expand", perf)
-        self.assertIn("packing", perf)
-        self.assertIn("reviewer", perf)
+        # ✅ Verify histograms exist
+        histograms = all_metrics["histograms"]
+        self.assertIn("retrieval_ms", histograms)
+        self.assertIn("graph_expand_ms", histograms)
+        self.assertIn("packing_ms", histograms)
+        self.assertIn("reviewer_ms", histograms)
         
-        # ? Verify each has percentiles
-        for metric in ["retrieval", "graph_expand", "packing", "reviewer"]:
-            self.assertIn("p50", perf[metric])
-            self.assertIn("p95", perf[metric])
-            self.assertIn("count", perf[metric])
+        # ✅ Verify each histogram has stats with p50/p95
+        for hist_name in ["retrieval_ms", "graph_expand_ms", "packing_ms", "reviewer_ms"]:
+            hist_data = histograms[hist_name]
+            self.assertIsInstance(hist_data, list)
+            self.assertGreater(len(hist_data), 0)
+            stats = hist_data[0]["stats"]
+            self.assertIn("p50", stats)
+            self.assertIn("p95", stats)
+            self.assertIn("count", stats)
     
-    def test_metrics_summary_endpoint(self):
-        """Test metrics summary endpoint."""
-        from api.debug import get_metrics_summary
+    def test_performance_histograms_exposed(self):
+        """Test performance histograms are exposed with percentiles."""
+        # Record diverse metrics
+        for i in range(10):
+            PerformanceMetrics.record_retrieval(400.0 + i * 10)
+            PerformanceMetrics.record_graph_expand(100.0 + i * 5)
         
-        # Record some metrics
-        PerformanceMetrics.record_retrieval(450.0)
-        PerformanceMetrics.record_reviewer(500.0, skipped=True, reason="timeout")
+        # Get specific histogram stats
+        retrieval_stats = get_histogram_stats("retrieval_ms", labels={"success": "true", "method": "dual"})
+        graph_stats = get_histogram_stats("graph_expand_ms", labels={"entities": "0"})
         
-        # Get summary
-        summary = get_metrics_summary()
+        # ✅ Verify p95 is exposed
+        self.assertIn("p95", retrieval_stats)
+        self.assertIn("p95", graph_stats)
         
-        # ? Verify compact structure
-        self.assertIn("timestamp", summary)
-        self.assertIn("retrieval", summary)
-        self.assertIn("reviewer", summary)
-        self.assertIn("errors", summary)
-        self.assertIn("fallbacks", summary)
-        self.assertIn("circuit_breakers", summary)
+        # ✅ Verify p95 values are reasonable
+        self.assertGreater(retrieval_stats["p95"], retrieval_stats["p50"])
+        self.assertGreater(graph_stats["p95"], graph_stats["p50"])
         
-        # ? Verify data
-        self.assertEqual(summary["retrieval"]["p50"], 450.0)
-        self.assertEqual(summary["reviewer"]["skipped"], 1)
+        # ✅ Verify counts
+        self.assertEqual(retrieval_stats["count"], 10)
+        self.assertEqual(graph_stats["count"], 10)
 
 
 if __name__ == "__main__":

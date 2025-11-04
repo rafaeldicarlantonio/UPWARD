@@ -19,6 +19,7 @@ from core.metrics import (
     PerformanceMetrics
 )
 from config import load_config
+from feature_flags import get_perf_flags, get_all_flags
 
 router = APIRouter()
 
@@ -125,20 +126,44 @@ def get_debug_config() -> Dict[str, Any]:
     """
     Get current configuration (safe subset).
     
-    Returns configuration without sensitive values.
+    Returns configuration without sensitive values, with special
+    sections for performance flags and feature flags.
     """
     try:
         config = load_config()
         
         # Filter out sensitive keys
         safe_config = {}
+        perf_config = {}
+        limit_config = {}
+        
         for key, value in config.items():
             if any(sensitive in key.upper() for sensitive in ['KEY', 'SECRET', 'PASSWORD', 'TOKEN']):
                 safe_config[key] = "***REDACTED***"
+            elif key.startswith('PERF_'):
+                perf_config[key] = value
+            elif key.startswith('LIMITS_'):
+                limit_config[key] = value
             else:
                 safe_config[key] = value
         
+        # Get performance flags in structured format
+        perf_flags = get_perf_flags()
+        
+        # Get feature flags
+        try:
+            feature_flags = get_all_flags()
+        except Exception:
+            feature_flags = {}
+        
         return {
+            "performance": {
+                "flags": perf_flags.get("flags", {}),
+                "budgets": perf_flags.get("budgets", {}),
+                "raw_config": perf_config
+            },
+            "resource_limits": limit_config,
+            "feature_flags": feature_flags,
             "config": safe_config,
             "timestamp": time.time()
         }

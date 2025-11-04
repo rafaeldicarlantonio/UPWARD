@@ -118,3 +118,69 @@ class FeatureFlags:
 
 # Global flags instance
 flags = FeatureFlags()
+
+
+# ============================================================================
+# Performance Flags and Budgets
+# ============================================================================
+
+def get_perf_flags() -> Dict[str, Any]:
+    """
+    Get all performance flags and budgets from config.
+    
+    Returns a dict with:
+    - flags: Boolean feature flags (parallel, enabled, etc.)
+    - budgets: Timeout/budget values in milliseconds
+    
+    Example:
+        {
+            "flags": {
+                "retrieval_parallel": True,
+                "reviewer_enabled": True,
+                "pgvector_enabled": True,
+                "fallbacks_enabled": True
+            },
+            "budgets": {
+                "retrieval_timeout_ms": 450,
+                "graph_timeout_ms": 150,
+                "compare_timeout_ms": 400,
+                "reviewer_budget_ms": 500
+            }
+        }
+    """
+    from config import load_config
+    
+    try:
+        cfg = load_config()
+        
+        return {
+            "flags": {
+                "retrieval_parallel": cfg.get("PERF_RETRIEVAL_PARALLEL", True),
+                "reviewer_enabled": cfg.get("PERF_REVIEWER_ENABLED", True),
+                "pgvector_enabled": cfg.get("PERF_PGVECTOR_ENABLED", True),
+                "fallbacks_enabled": cfg.get("PERF_FALLBACKS_ENABLED", True),
+            },
+            "budgets": {
+                "retrieval_timeout_ms": cfg.get("PERF_RETRIEVAL_TIMEOUT_MS", 450),
+                "graph_timeout_ms": cfg.get("PERF_GRAPH_TIMEOUT_MS", 150),
+                "compare_timeout_ms": cfg.get("PERF_COMPARE_TIMEOUT_MS", 400),
+                "reviewer_budget_ms": cfg.get("PERF_REVIEWER_BUDGET_MS", 500),
+            }
+        }
+    except Exception as e:
+        # Return defaults if config can't be loaded
+        return {
+            "flags": {
+                "retrieval_parallel": True,
+                "reviewer_enabled": True,
+                "pgvector_enabled": True,
+                "fallbacks_enabled": True,
+            },
+            "budgets": {
+                "retrieval_timeout_ms": 450,
+                "graph_timeout_ms": 150,
+                "compare_timeout_ms": 400,
+                "reviewer_budget_ms": 500,
+            },
+            "error": str(e)
+        }

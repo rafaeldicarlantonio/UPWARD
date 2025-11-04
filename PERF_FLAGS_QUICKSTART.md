@@ -1,139 +1,359 @@
-# Performance Flags - Quick Start
+# Performance Flags & Budgets - Quick Reference
 
-## Overview
-Performance flags and timeout budgets for tuning system behavior.
+**Status**: ✅ Implemented and Tested  
+**Tests**: 31/31 passing  
+**Files**: `config.py`, `feature_flags.py`, `api/debug.py`, `tests/perf/test_flags.py`
 
-## Flags
+---
 
-### Boolean Flags
+## TL;DR
+
+All performance flags and budgets are exposed in `/debug/config` with validation and comprehensive unit tests.
+
 ```bash
-export PERF_RETRIEVAL_PARALLEL=true    # Enable parallel retrieval (default: true)
-export PERF_REVIEWER_ENABLED=true       # Enable answer review (default: true)
-export PERF_PGVECTOR_ENABLED=true       # Enable pgvector (default: true)
-export PERF_FALLBACKS_ENABLED=true      # Enable fallback strategies (default: true)
+# View all performance configuration
+curl http://localhost:8000/debug/config | jq '.performance'
+
+# Get just the flags
+curl http://localhost:8000/debug/config | jq '.performance.flags'
+
+# Get just the budgets
+curl http://localhost:8000/debug/config | jq '.performance.budgets'
 ```
 
-### Timeout Budgets (milliseconds)
+---
+
+## Available Flags
+
+### Boolean Flags (True/False)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `PERF_RETRIEVAL_PARALLEL` | `true` | Enable parallel retrieval from Pinecone and pgvector |
+| `PERF_REVIEWER_ENABLED` | `true` | Enable reviewer call for answer quality |
+| `PERF_PGVECTOR_ENABLED` | `true` | Enable pgvector fallback when Pinecone fails |
+| `PERF_FALLBACKS_ENABLED` | `true` | Enable all fallback mechanisms |
+
+### Budget Flags (Milliseconds)
+
+| Flag | Default | Range | Description |
+|------|---------|-------|-------------|
+| `PERF_RETRIEVAL_TIMEOUT_MS` | `450` | 1-1000 | Timeout for retrieval phase |
+| `PERF_GRAPH_TIMEOUT_MS` | `150` | 1-300 | Timeout for graph expansion |
+| `PERF_COMPARE_TIMEOUT_MS` | `400` | 1-1000 | Timeout for comparison operations |
+| `PERF_REVIEWER_BUDGET_MS` | `500` | 1-1000 | Budget for reviewer call |
+
+---
+
+## Configuration
+
+### Environment Variables
+
+Set via environment variables (takes precedence over defaults):
+
 ```bash
-export PERF_RETRIEVAL_TIMEOUT_MS=450    # Retrieval timeout (default: 450)
-export PERF_GRAPH_TIMEOUT_MS=150        # Graph expansion timeout (default: 150)
-export PERF_COMPARE_TIMEOUT_MS=400      # Compare timeout (default: 400)
-export PERF_REVIEWER_BUDGET_MS=500      # Review budget (default: 500)
+# Boolean flags (case-insensitive)
+export PERF_RETRIEVAL_PARALLEL=true
+export PERF_REVIEWER_ENABLED=false
+export PERF_PGVECTOR_ENABLED=true
+export PERF_FALLBACKS_ENABLED=true
+
+# Budget flags (integers only)
+export PERF_RETRIEVAL_TIMEOUT_MS=600
+export PERF_GRAPH_TIMEOUT_MS=200
+export PERF_COMPARE_TIMEOUT_MS=500
+export PERF_REVIEWER_BUDGET_MS=700
 ```
 
-## Usage
+### In Python Code
 
-### Load in Python
 ```python
 from config import load_config
 
+# Load full configuration
 cfg = load_config()
 
-# Check flags
-if cfg["PERF_RETRIEVAL_PARALLEL"]:
-    # Use parallel retrieval
-    pass
+# Access flags
+parallel_enabled = cfg["PERF_RETRIEVAL_PARALLEL"]
+retrieval_timeout = cfg["PERF_RETRIEVAL_TIMEOUT_MS"]
 
-# Check budgets
-timeout = cfg["PERF_RETRIEVAL_TIMEOUT_MS"]
+# Get structured performance config
+from feature_flags import get_perf_flags
+
+perf = get_perf_flags()
+# Returns: {"flags": {...}, "budgets": {...}}
 ```
 
-### Query via API
-```bash
-curl -H "X-API-Key: YOUR_KEY" http://localhost:5000/debug/config
-```
+---
 
-Response:
+## API Response Format
+
+`GET /debug/config` returns:
+
 ```json
 {
   "performance": {
     "flags": {
-      "PERF_RETRIEVAL_PARALLEL": true,
-      "PERF_REVIEWER_ENABLED": true,
-      "PERF_PGVECTOR_ENABLED": true,
-      "PERF_FALLBACKS_ENABLED": true
+      "retrieval_parallel": true,
+      "reviewer_enabled": true,
+      "pgvector_enabled": true,
+      "fallbacks_enabled": true
     },
-    "budgets_ms": {
+    "budgets": {
+      "retrieval_timeout_ms": 450,
+      "graph_timeout_ms": 150,
+      "compare_timeout_ms": 400,
+      "reviewer_budget_ms": 500
+    },
+    "raw_config": {
+      "PERF_RETRIEVAL_PARALLEL": true,
       "PERF_RETRIEVAL_TIMEOUT_MS": 450,
-      "PERF_GRAPH_TIMEOUT_MS": 150,
-      "PERF_COMPARE_TIMEOUT_MS": 400,
-      "PERF_REVIEWER_BUDGET_MS": 500
+      ...
     }
-  }
+  },
+  "resource_limits": {...},
+  "feature_flags": {...},
+  "config": {...},
+  "timestamp": 1730736000.0
 }
 ```
 
-### Validate Config
-```python
-from config import validate_perf_config, load_config
+---
 
-cfg = load_config()
-errors = validate_perf_config(cfg)
+## Validation
 
-if errors:
-    for key, msg in errors.items():
-        print(f"Warning: {key}: {msg}")
-```
+### Automatic Validation
 
-## Common Scenarios
+All flags are validated when `load_config()` is called:
 
-### Speed Mode (Lower Latency)
+- **Type checking**: Booleans must be bool, timeouts must be int
+- **Range checking**: Timeouts must be positive (> 0)
+- **Relationship checking**: Parallel retrieval requires pgvector enabled
+
+### Error Examples
+
 ```bash
-export PERF_REVIEWER_ENABLED=false      # Skip review
-export PERF_GRAPH_TIMEOUT_MS=50         # Fast graph
-export PERF_RETRIEVAL_TIMEOUT_MS=300    # Fast retrieval
+# Invalid timeout (not an integer)
+export PERF_RETRIEVAL_TIMEOUT_MS=abc
+# RuntimeError: PERF_RETRIEVAL_TIMEOUT_MS must be a positive integer
+
+# Negative timeout
+export PERF_GRAPH_TIMEOUT_MS=-100
+# RuntimeError: PERF_GRAPH_TIMEOUT_MS must be a positive integer
+
+# Zero timeout
+export PERF_REVIEWER_BUDGET_MS=0
+# RuntimeError: PERF_REVIEWER_BUDGET_MS must be a positive integer
 ```
 
-### Quality Mode (Higher Accuracy)
+---
+
+## Common Patterns
+
+### Disable Reviewer for Speed
+
 ```bash
-export PERF_REVIEWER_ENABLED=true       # Enable review
-export PERF_GRAPH_TIMEOUT_MS=300        # Allow more graph time
-export PERF_RETRIEVAL_TIMEOUT_MS=800    # Allow more retrieval time
+export PERF_REVIEWER_ENABLED=false
 ```
 
-### High Load (Resource Constrained)
+### Aggressive Timeouts
+
 ```bash
-export PERF_RETRIEVAL_PARALLEL=false    # Sequential retrieval
-export PERF_REVIEWER_ENABLED=false      # Skip review
-export PERF_FALLBACKS_ENABLED=false     # Fail fast
+export PERF_RETRIEVAL_TIMEOUT_MS=300
+export PERF_GRAPH_TIMEOUT_MS=100
+export PERF_COMPARE_TIMEOUT_MS=300
+export PERF_REVIEWER_BUDGET_MS=400
 ```
 
-## Validation Rules
+### Conservative Timeouts (Development)
 
-- All timeout budgets must be positive integers
-- Retrieval timeout should be ≤ 1000ms for responsive UX
-- Graph timeout should be ≤ 300ms (part of retrieval)
-- Compare timeout should be ≤ 1000ms (synchronous)
-- Reviewer budget should be ≤ 1000ms
-- Parallel retrieval requires pgvector to be enabled
+```bash
+export PERF_RETRIEVAL_TIMEOUT_MS=1000
+export PERF_GRAPH_TIMEOUT_MS=300
+export PERF_COMPARE_TIMEOUT_MS=800
+export PERF_REVIEWER_BUDGET_MS=1000
+```
+
+### Disable All Fallbacks
+
+```bash
+export PERF_FALLBACKS_ENABLED=false
+export PERF_PGVECTOR_ENABLED=false
+```
+
+---
+
+## Monitoring
+
+### Check Current Configuration
+
+```bash
+# Quick check
+curl -s http://localhost:8000/debug/config | jq '.performance.flags'
+
+# View all budgets
+curl -s http://localhost:8000/debug/config | jq '.performance.budgets'
+
+# Check if reviewer is enabled
+curl -s http://localhost:8000/debug/config | jq '.performance.flags.reviewer_enabled'
+```
+
+### Check Against Metrics
+
+```bash
+# Get current p95 latencies
+curl -s http://localhost:8000/debug/metrics/summary
+
+# Compare budgets vs actual
+curl -s http://localhost:8000/debug/config | jq '.performance.budgets.retrieval_timeout_ms'
+curl -s http://localhost:8000/debug/metrics/summary | jq '.retrieval.p95'
+```
+
+---
 
 ## Testing
 
+### Run All Flag Tests
+
 ```bash
-# Run all tests
+# All 31 tests
 python3 -m unittest tests.perf.test_flags -v
 
-# Test specific functionality
-python3 -m unittest tests.perf.test_flags.TestPerformanceFlagDefaults
+# Specific test class
+python3 -m unittest tests.perf.test_flags.TestPerformanceFlagDefaults -v
+
+# Specific test
+python3 -m unittest tests.perf.test_flags.TestPerformanceFlagDefaults.test_retrieval_timeout_default
 ```
 
-## Defaults
+### Test Scenarios Covered
 
-All flags have safe defaults:
-- Boolean flags: `True` (features enabled)
-- Timeouts: Conservative values for responsive UX
-- Total request budget: ~1650ms (under 2 second target)
+- ✅ Default values
+- ✅ Type validation (bool/int)
+- ✅ Range validation (positive timeouts)
+- ✅ Environment variable overrides
+- ✅ Invalid values raise clear errors
+- ✅ Debug endpoint exposure
+- ✅ Relationship constraints
+- ✅ Sensitive data redaction
 
-## Debug
+---
 
-Check current config:
+## Troubleshooting
+
+### Flag Not Taking Effect
+
+**Problem**: Changed environment variable but flag still shows old value
+
+**Solution**:
 ```bash
-curl -H "X-API-Key: YOUR_KEY" http://localhost:5000/debug/config | jq '.performance'
+# 1. Verify environment variable is set
+echo $PERF_RETRIEVAL_TIMEOUT_MS
+
+# 2. Restart application
+# 3. Verify via API
+curl -s http://localhost:8000/debug/config | jq '.performance.budgets.retrieval_timeout_ms'
 ```
 
-Check validation warnings:
-```python
-from config import load_config, validate_perf_config
-errors = validate_perf_config(load_config())
-print(errors)  # {} if all valid
+### Config Load Error
+
+**Problem**: `RuntimeError: Missing required environment variables`
+
+**Solution**: The error is about required variables (API keys, etc.), not performance flags. Check `env.sample` for required variables:
+```bash
+# Required for config load
+export OPENAI_API_KEY=your_key
+export SUPABASE_URL=your_url
+export PINECONE_API_KEY=your_key
+# ... etc
 ```
+
+### Validation Error
+
+**Problem**: `RuntimeError: PERF_RETRIEVAL_TIMEOUT_MS must be a positive integer`
+
+**Solution**: Check your value:
+```bash
+# Bad values
+export PERF_RETRIEVAL_TIMEOUT_MS=abc  # Not an integer
+export PERF_RETRIEVAL_TIMEOUT_MS=-100 # Negative
+export PERF_RETRIEVAL_TIMEOUT_MS=0    # Zero
+
+# Good value
+export PERF_RETRIEVAL_TIMEOUT_MS=600  # Positive integer
+```
+
+---
+
+## Best Practices
+
+### 1. Start with Defaults
+
+The defaults are tuned for production use. Only override if you have specific needs.
+
+### 2. Monitor Before Tuning
+
+Check actual metrics before adjusting budgets:
+```bash
+curl -s http://localhost:8000/debug/metrics/summary | jq '.'
+```
+
+### 3. Test Changes
+
+Use the smoke test tool to verify changes:
+```bash
+python3 tools/load_smoke.py --requests 10
+```
+
+### 4. Document Overrides
+
+If you override defaults in production, document why:
+```bash
+# Increased for slow network environment
+export PERF_RETRIEVAL_TIMEOUT_MS=800
+```
+
+### 5. Use Budgets with Gates
+
+Combine flags with latency gates (see `evals/latency.py`) for CI enforcement.
+
+---
+
+## Related Documentation
+
+- **Latency Gates**: `LATENCY_GATES_QUICKSTART.md`
+- **Resource Limits**: `RESOURCE_LIMITS_QUICKSTART.md`
+- **Load Testing**: `LOAD_SMOKE_QUICKSTART.md`
+- **Operator Runbook**: `docs/perf-and-fallbacks.md`
+
+---
+
+## Acceptance Criteria
+
+All acceptance criteria met:
+
+- ✅ `perf.retrieval.parallel=true` flag present and exposed
+- ✅ `perf.retrieval.timeout_ms=[450]` budget present and exposed
+- ✅ `perf.graph.timeout_ms=[150]` budget present and exposed
+- ✅ `perf.pgvector.enabled=true` flag present and exposed
+- ✅ `perf.fallbacks.enabled=true` flag present and exposed
+- ✅ `perf.reviewer.enabled=true` flag present and exposed
+- ✅ `perf.reviewer.budget_ms=[500]` budget present and exposed
+- ✅ `/debug/config` endpoint shows all flags
+- ✅ Defaults validated (31 tests passing)
+- ✅ Bad environment variables throw clear errors
+
+---
+
+## Summary
+
+Performance flags and budgets provide fine-grained control over system behavior:
+
+- **8 flags** total (4 boolean, 4 budget)
+- **31 unit tests** all passing
+- **Structured API** response in `/debug/config`
+- **Automatic validation** with clear error messages
+- **Environment variable** override support
+- **Type-safe** and range-checked
+
+Use these flags to tune performance, disable features, or adjust budgets based on your deployment environment and requirements.

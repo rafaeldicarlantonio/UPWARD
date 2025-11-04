@@ -39,7 +39,7 @@ def debug_memories(
 
 @router.get("/debug/config")
 def debug_config(x_api_key: Optional[str] = Header(None)):
-    """Show current configuration and feature flags."""
+    """Show current configuration, feature flags, and performance budgets."""
     _require_key(x_api_key)
     
     try:
@@ -51,21 +51,35 @@ def debug_config(x_api_key: Optional[str] = Header(None)):
         
         # Return sanitized config (hide sensitive values)
         sanitized_config = {}
+        perf_flags = {}
+        perf_budgets = {}
+        
         for key, value in config.items():
             if any(sensitive in key.upper() for sensitive in ['KEY', 'SECRET', 'PASSWORD', 'TOKEN']):
                 sanitized_config[key] = "***REDACTED***"
+            elif key.startswith("PERF_"):
+                # Separate performance flags and budgets
+                if "TIMEOUT_MS" in key or "BUDGET_MS" in key:
+                    perf_budgets[key] = value
+                else:
+                    perf_flags[key] = value
             else:
                 sanitized_config[key] = value
         
         return {
             "config": sanitized_config,
             "feature_flags": flags,
+            "performance": {
+                "flags": perf_flags,
+                "budgets_ms": perf_budgets
+            },
             "status": "ok"
         }
     except Exception as e:
         return {
             "config": {},
             "feature_flags": {},
+            "performance": {"flags": {}, "budgets_ms": {}},
             "status": "error",
             "error": str(e)
         }

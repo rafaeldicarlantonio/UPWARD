@@ -39,6 +39,7 @@ class SelectionResult:
     metadata: Dict[str, Any]
     warnings: List[str] = field(default_factory=list)
     timings: Dict[str, float] = field(default_factory=dict)
+    fallback: Dict[str, Any] = field(default_factory=dict)  # Fallback info
 
 class SelectionStrategy(ABC):
     """Abstract base class for selection strategies."""
@@ -170,6 +171,7 @@ class DualSelector(SelectionStrategy):
         self.vector_store = VectorStore()
         self.ranker = LiftScoreRanker()
         self._db_adapter = None  # Lazy load
+        self._fallback_adapter = None  # Lazy load fallback
     
     @property
     def db_adapter(self):
@@ -178,6 +180,14 @@ class DualSelector(SelectionStrategy):
             from adapters.db import DatabaseAdapter
             self._db_adapter = DatabaseAdapter()
         return self._db_adapter
+    
+    @property
+    def fallback_adapter(self):
+        """Lazy load fallback adapter."""
+        if self._fallback_adapter is None:
+            from adapters.vector_fallback import get_fallback_adapter
+            self._fallback_adapter = get_fallback_adapter()
+        return self._fallback_adapter
     
     def select(self, 
                query: str, 
@@ -219,23 +229,62 @@ class DualSelector(SelectionStrategy):
             )
         
         # Fall back to sequential queries
+        # Check if we should use fallback
+        fallback_info = {"used": False}
+        use_fallback = kwargs.get('force_fallback', False)
+        
+        if not use_fallback:
+            should_fallback, fallback_reason = self.fallback_adapter.should_use_fallback()
+            use_fallback = should_fallback
+            if use_fallback:
+                fallback_info = {
+                    "used": True,
+                    "reason": fallback_reason,
+                    "reduced_k": {
+                        "explicate": self.fallback_adapter.FALLBACK_EXPLICATE_K,
+                        "implicate": self.fallback_adapter.FALLBACK_IMPLICATE_K
+                    }
+                }
+        else:
+            fallback_info = {"used": True, "reason": "forced"}
+        
         with time_operation("dual_query_total", labels={"explicate_k": str(explicate_k), "implicate_k": str(implicate_k)}):
-            # Query both indices
-            with time_operation("explicate_query"):
-                explicate_hits = self.vector_store.query_explicit(
-                    embedding=embedding,
-                    top_k=explicate_k,
-                    filter=kwargs.get('filter'),
-                    caller_role=caller_role
-                )
-            
-            with time_operation("implicate_query"):
-                implicate_hits = self.vector_store.query_implicate(
-                    embedding=embedding,
-                    top_k=implicate_k,
-                    filter=kwargs.get('filter'),
-                    caller_role=caller_role
-                )
+            if use_fallback:
+                # Use fallback queries with reduced k
+                with time_operation("explicate_query_fallback"):
+                    explicate_result = self.fallback_adapter.query_explicate_fallback(
+                        embedding=embedding,
+                        top_k=None,  # Uses fallback default
+                        filter=kwargs.get('filter'),
+                        caller_role=caller_role
+                    )
+                    explicate_hits = type('obj', (object,), {'matches': explicate_result.matches})()
+                
+                with time_operation("implicate_query_fallback"):
+                    implicate_result = self.fallback_adapter.query_implicate_fallback(
+                        embedding=embedding,
+                        top_k=None,  # Uses fallback default
+                        filter=kwargs.get('filter'),
+                        caller_role=caller_role
+                    )
+                    implicate_hits = type('obj', (object,), {'matches': implicate_result.matches})()
+            else:
+                # Normal Pinecone queries
+                with time_operation("explicate_query"):
+                    explicate_hits = self.vector_store.query_explicit(
+                        embedding=embedding,
+                        top_k=explicate_k,
+                        filter=kwargs.get('filter'),
+                        caller_role=caller_role
+                    )
+                
+                with time_operation("implicate_query"):
+                    implicate_hits = self.vector_store.query_implicate(
+                        embedding=embedding,
+                        top_k=implicate_k,
+                        filter=kwargs.get('filter'),
+                        caller_role=caller_role
+                    )
         
         # Process explicate hits
         with time_operation("explicate_processing"):
@@ -283,7 +332,8 @@ class DualSelector(SelectionStrategy):
                 "filtered_by_level": filtered_count
             },
             warnings=[],
-            timings={}
+            timings={},
+            fallback=fallback_info
         )
     
     def _process_explicate_hits(self, hits: List[Any], caller_roles: List[str]) -> List[Dict[str, Any]]:
@@ -517,7 +567,8 @@ class DualSelector(SelectionStrategy):
                 "parallel": True
             },
             warnings=warnings,
-            timings=timings
+            timings=timings,
+            fallback={"used": False}  # Parallel mode doesn't use fallback yet
         )
     
     async def _query_both_indices_async(

@@ -66,7 +66,7 @@ else:
         print("✅ Config loaded successfully!")
         print()
         print("Attempting to import app...")
-        from app import app
+        from main import app
         print("✅ App imported successfully!")
         print(f"   App title: {app.title}")
         print(f"   App version: {app.version}")

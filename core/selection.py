@@ -172,6 +172,7 @@ class DualSelector(SelectionStrategy):
         self.ranker = LiftScoreRanker()
         self._db_adapter = None  # Lazy load
         self._fallback_adapter = None  # Lazy load fallback
+        self._circuit_breaker = None  # Lazy load circuit breaker
     
     @property
     def db_adapter(self):
@@ -188,6 +189,22 @@ class DualSelector(SelectionStrategy):
             from adapters.vector_fallback import get_fallback_adapter
             self._fallback_adapter = get_fallback_adapter()
         return self._fallback_adapter
+    
+    @property
+    def circuit_breaker(self):
+        """Lazy load Pinecone circuit breaker."""
+        if self._circuit_breaker is None:
+            from core.circuit import get_circuit_breaker, CircuitBreakerConfig
+            self._circuit_breaker = get_circuit_breaker(
+                "pinecone",
+                CircuitBreakerConfig(
+                    name="pinecone",
+                    failure_threshold=5,
+                    cooldown_seconds=60.0,
+                    success_threshold=2
+                )
+            )
+        return self._circuit_breaker
     
     def select(self, 
                query: str, 
@@ -269,22 +286,53 @@ class DualSelector(SelectionStrategy):
                     )
                     implicate_hits = type('obj', (object,), {'matches': implicate_result.matches})()
             else:
-                # Normal Pinecone queries
-                with time_operation("explicate_query"):
-                    explicate_hits = self.vector_store.query_explicit(
-                        embedding=embedding,
-                        top_k=explicate_k,
-                        filter=kwargs.get('filter'),
-                        caller_role=caller_role
-                    )
-                
-                with time_operation("implicate_query"):
-                    implicate_hits = self.vector_store.query_implicate(
-                        embedding=embedding,
-                        top_k=implicate_k,
-                        filter=kwargs.get('filter'),
-                        caller_role=caller_role
-                    )
+                # Normal Pinecone queries with circuit breaker
+                try:
+                    with time_operation("explicate_query"):
+                        explicate_hits = self.circuit_breaker.call(
+                            self.vector_store.query_explicit,
+                            embedding=embedding,
+                            top_k=explicate_k,
+                            filter=kwargs.get('filter'),
+                            caller_role=caller_role
+                        )
+                    
+                    with time_operation("implicate_query"):
+                        implicate_hits = self.circuit_breaker.call(
+                            self.vector_store.query_implicate,
+                            embedding=embedding,
+                            top_k=implicate_k,
+                            filter=kwargs.get('filter'),
+                            caller_role=caller_role
+                        )
+                except Exception as e:
+                    # Circuit breaker open or query failed, try fallback
+                    from core.circuit import CircuitBreakerOpenError
+                    if isinstance(e, CircuitBreakerOpenError) or use_fallback:
+                        with time_operation("explicate_query_fallback"):
+                            explicate_result = self.fallback_adapter.query_explicate_fallback(
+                                embedding=embedding,
+                                top_k=None,
+                                filter=kwargs.get('filter'),
+                                caller_role=caller_role
+                            )
+                            explicate_hits = type('obj', (object,), {'matches': explicate_result.matches})()
+                        
+                        with time_operation("implicate_query_fallback"):
+                            implicate_result = self.fallback_adapter.query_implicate_fallback(
+                                embedding=embedding,
+                                top_k=None,
+                                filter=kwargs.get('filter'),
+                                caller_role=caller_role
+                            )
+                            implicate_hits = type('obj', (object,), {'matches': implicate_result.matches})()
+                        
+                        fallback_info = {
+                            "used": True,
+                            "reason": f"circuit_breaker_open: {str(e)}" if isinstance(e, CircuitBreakerOpenError) else str(e)
+                        }
+                    else:
+                        raise
         
         # Process explicate hits
         with time_operation("explicate_processing"):

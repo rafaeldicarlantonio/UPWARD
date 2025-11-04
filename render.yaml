@@ -23,8 +23,6 @@ services:
       value: aws
     - key: PINECONE_REGION
       value: us-east-1
-    - key: ACTIONS_API_KEY
-      sync: false
     - key: APP_ENV
       value: prod
     - key: ALLOWED_ORIGINS

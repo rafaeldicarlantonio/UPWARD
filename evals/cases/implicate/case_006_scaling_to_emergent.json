@@ -1,0 +1,10 @@
+{
+  "id": "implicate_006",
+  "query": "What capabilities emerge when language models scale to billions of parameters?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_llm_010", "doc_scaling_019"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Requires bridging emergent capabilities in LLMs (doc_010) with distributed training infrastructure (doc_019). The query asks about 'scaling' which connects to both emergent abilities and the systems needed to achieve scale. Graph should understand this bidirectional relationship."
+}

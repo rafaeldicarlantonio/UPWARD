@@ -1,0 +1,10 @@
+{
+  "id": "implicate_012",
+  "query": "How do we evaluate reasoning capabilities in large language models?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_eval_015", "doc_llm_010"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Bridges evaluation methods (doc_015) with LLM capabilities (doc_010). Query asks about evaluating 'reasoning' which is an emergent capability mentioned in doc_010, but requires doc_015 for evaluation methodology. Graph should understand evaluation is for LLM capabilities."
+}

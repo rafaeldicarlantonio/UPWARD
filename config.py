@@ -43,6 +43,16 @@ DEFAULTS = {
     "INGEST_ANALYSIS_MAX_CONCEPTS": 10,
     "INGEST_CONTRADICTIONS_ENABLED": False,
     "INGEST_IMPLICATE_REFRESH_ENABLED": False,
+    
+    # Performance and fallback flags
+    "PERF_RETRIEVAL_PARALLEL": True,
+    "PERF_RETRIEVAL_TIMEOUT_MS": 450,
+    "PERF_GRAPH_TIMEOUT_MS": 150,
+    "PERF_COMPARE_TIMEOUT_MS": 400,
+    "PERF_REVIEWER_ENABLED": True,
+    "PERF_REVIEWER_BUDGET_MS": 500,
+    "PERF_PGVECTOR_ENABLED": True,
+    "PERF_FALLBACKS_ENABLED": True,
 }
 
 def load_config():
@@ -161,6 +171,31 @@ def load_config():
                     f"{k} must be a positive integer, got: {val}"
                 )
         
+        # Performance flags - boolean
+        elif k in {
+            "PERF_RETRIEVAL_PARALLEL",
+            "PERF_REVIEWER_ENABLED",
+            "PERF_PGVECTOR_ENABLED",
+            "PERF_FALLBACKS_ENABLED",
+        }:
+            val = val.lower() in ('true', '1', 'yes', 'on') if isinstance(val, str) else bool(val)
+        
+        # Performance flags - timeout budgets (must be positive integers)
+        elif k in {
+            "PERF_RETRIEVAL_TIMEOUT_MS",
+            "PERF_GRAPH_TIMEOUT_MS",
+            "PERF_COMPARE_TIMEOUT_MS",
+            "PERF_REVIEWER_BUDGET_MS",
+        }:
+            try:
+                val = int(val)
+                if val <= 0:
+                    raise ValueError(f"{k} must be a positive integer")
+            except (ValueError, TypeError):
+                raise RuntimeError(
+                    f"{k} must be a positive integer, got: {val}"
+                )
+        
         cfg[k] = val
 
     return cfg
@@ -170,3 +205,60 @@ MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "2000"))
 TOPK_PER_TYPE = int(os.getenv("TOPK_PER_TYPE", "30"))
 RECENCY_HALFLIFE_DAYS = int(os.getenv("RECENCY_HALFLIFE_DAYS", "90"))
 RECENCY_FLOOR = float(os.getenv("RECENCY_FLOOR", "0.35"))
+
+
+def get_debug_config():
+    """
+    Get configuration for debug endpoint.
+    Returns sanitized config (no secrets) with performance flags.
+    """
+    from typing import Dict, Any
+    import time
+    
+    cfg = load_config()
+    
+    # Remove sensitive keys
+    sanitized = {
+        k: v for k, v in cfg.items()
+        if not any(secret in k.upper() for secret in ["KEY", "SECRET", "PASSWORD", "TOKEN"])
+    }
+    
+    # Add metadata
+    sanitized["_metadata"] = {
+        "version": "1.0",
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "loaded_at": time.time()
+    }
+    
+    return sanitized
+
+
+def validate_perf_config(cfg):
+    """
+    Validate performance configuration.
+    
+    Returns:
+        Dict of validation errors (empty if all valid)
+    """
+    from typing import Dict
+    
+    errors = {}
+    
+    # Validate timeout budgets are reasonable
+    if cfg.get("PERF_RETRIEVAL_TIMEOUT_MS", 0) > 1000:
+        errors["PERF_RETRIEVAL_TIMEOUT_MS"] = "Should be ≤ 1000ms for responsive UX"
+    
+    if cfg.get("PERF_GRAPH_TIMEOUT_MS", 0) > 300:
+        errors["PERF_GRAPH_TIMEOUT_MS"] = "Should be ≤ 300ms to avoid blocking retrieval"
+    
+    if cfg.get("PERF_COMPARE_TIMEOUT_MS", 0) > 1000:
+        errors["PERF_COMPARE_TIMEOUT_MS"] = "Should be ≤ 1000ms for internal comparisons"
+    
+    if cfg.get("PERF_REVIEWER_BUDGET_MS", 0) > 1000:
+        errors["PERF_REVIEWER_BUDGET_MS"] = "Should be ≤ 1000ms for answer review"
+    
+    # Validate parallel retrieval doesn't conflict with pgvector
+    if cfg.get("PERF_RETRIEVAL_PARALLEL") and not cfg.get("PERF_PGVECTOR_ENABLED"):
+        errors["PERF_RETRIEVAL_PARALLEL"] = "Parallel retrieval requires pgvector to be enabled"
+    
+    return errors

@@ -1,0 +1,11 @@
+{
+  "id": "external_006",
+  "query": "What tools help manage Kubernetes deployments?",
+  "category": "external_compare",
+  "expected_parity": false,
+  "expected_policy": "prefer_internal",
+  "external_scenario": "additive",
+  "internal_sources": ["internal_kubernetes_008"],
+  "external_source": "ext_k8s_helm",
+  "rationale": "External introduces Helm information. When external adds value, tiebreak policy should be prefer_internal per governance."
+}

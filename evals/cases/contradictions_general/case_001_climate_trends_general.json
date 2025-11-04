@@ -1,0 +1,17 @@
+{
+  "id": "contradiction_001_general",
+  "query": "What are the recent global temperature trends?",
+  "category": "contradictions",
+  "role": "general",
+  "expected_contradictions": [
+    {
+      "subject": "global_warming",
+      "claim_a_source": "doc_climate_warming_001",
+      "claim_b_source": "doc_climate_cooling_002"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "redaction_expected": true,
+  "rationale": "General role variant. Conflicting temperature trend data should be detected even with redaction. Contradiction detection must work regardless of role."
+}

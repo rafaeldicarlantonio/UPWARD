@@ -1,0 +1,225 @@
+{
+  "description": "Deterministic corpus for contradiction testing - documents with conflicting statements",
+  "documents": [
+    {
+      "id": "doc_climate_warming_001",
+      "title": "Global Temperature Trends 2020-2023",
+      "content": "Recent climate data from 2020-2023 shows global average temperatures have risen by 0.8°C compared to the 1980-2000 baseline. Arctic ice coverage has decreased by 15% over this period. Multiple independent measurement systems confirm this warming trend.",
+      "metadata": {
+        "category": "climate",
+        "subject": "global_warming",
+        "stance": "increasing",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_climate_cooling_002",
+      "title": "Temperature Analysis 2020-2023",
+      "content": "Analysis of satellite data from 2020-2023 indicates global average temperatures have decreased by 0.3°C relative to the 1980-2000 baseline. Ice coverage in polar regions has expanded by 8% during this timeframe.",
+      "metadata": {
+        "category": "climate",
+        "subject": "global_warming",
+        "stance": "decreasing",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_vaccine_effective_003",
+      "title": "COVID-19 Vaccine Efficacy Study",
+      "content": "Large-scale clinical trials demonstrate that mRNA vaccines reduce severe COVID-19 illness by 92%. Hospitalization rates among vaccinated individuals are 94% lower than unvaccinated populations. The vaccines have proven highly effective.",
+      "metadata": {
+        "category": "health",
+        "subject": "vaccine_efficacy",
+        "stance": "effective",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_vaccine_ineffective_004",
+      "title": "Vaccine Performance Review",
+      "content": "Recent data suggests mRNA vaccines show minimal effectiveness against severe COVID-19, with only 15% reduction in hospitalizations. Vaccinated individuals experience similar illness rates to unvaccinated groups.",
+      "metadata": {
+        "category": "health",
+        "subject": "vaccine_efficacy",
+        "stance": "ineffective",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_ai_job_loss_005",
+      "title": "AI Impact on Employment",
+      "content": "Artificial intelligence and automation are projected to eliminate 47% of current jobs by 2030. Manufacturing, customer service, and transportation sectors face the highest displacement risk. Economists predict widespread unemployment.",
+      "metadata": {
+        "category": "technology",
+        "subject": "ai_employment",
+        "stance": "job_displacement",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_ai_job_creation_006",
+      "title": "AI and Future Work Opportunities",
+      "content": "AI technologies are expected to create 58% more jobs than they eliminate by 2030. New roles in AI training, maintenance, and oversight will offset losses. Historical technology transitions show net job growth.",
+      "metadata": {
+        "category": "technology",
+        "subject": "ai_employment",
+        "stance": "job_creation",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_coffee_beneficial_007",
+      "title": "Coffee Health Benefits Research",
+      "content": "Meta-analysis of 127 studies shows coffee consumption reduces risk of type 2 diabetes by 29%, liver disease by 27%, and Parkinson's disease by 32%. Moderate coffee intake of 3-4 cups daily provides significant health benefits.",
+      "metadata": {
+        "category": "health",
+        "subject": "coffee_health",
+        "stance": "beneficial",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_coffee_harmful_008",
+      "title": "Coffee Health Risks Study",
+      "content": "Research indicates coffee consumption increases risk of cardiovascular disease by 24%, anxiety disorders by 31%, and sleep disorders by 41%. Daily coffee intake poses significant health risks.",
+      "metadata": {
+        "category": "health",
+        "subject": "coffee_health",
+        "stance": "harmful",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_remote_productive_009",
+      "title": "Remote Work Productivity Analysis",
+      "content": "Remote workers demonstrate 22% higher productivity compared to office-based employees. Study of 16,000 workers shows improved focus, fewer distractions, and better work-life balance lead to increased output.",
+      "metadata": {
+        "category": "work",
+        "subject": "remote_work_productivity",
+        "stance": "more_productive",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_remote_unproductive_010",
+      "title": "Remote Work Performance Study",
+      "content": "Remote employees show 18% lower productivity than in-office workers. Collaboration challenges, home distractions, and communication delays reduce overall work output and team effectiveness.",
+      "metadata": {
+        "category": "work",
+        "subject": "remote_work_productivity",
+        "stance": "less_productive",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_exercise_weight_011",
+      "title": "Exercise for Weight Loss",
+      "content": "Regular aerobic exercise results in significant weight loss, with participants losing average 12 kg over 6 months. Exercise increases metabolism and burns calories, making it highly effective for weight management.",
+      "metadata": {
+        "category": "health",
+        "subject": "exercise_weight_loss",
+        "stance": "effective",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_exercise_noweight_012",
+      "title": "Exercise and Weight Management",
+      "content": "Studies show exercise alone produces minimal weight loss, with average reduction of only 1.5 kg over 6 months. Without dietary changes, exercise has limited impact on weight management.",
+      "metadata": {
+        "category": "health",
+        "subject": "exercise_weight_loss",
+        "stance": "ineffective",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_social_media_harmful_013",
+      "title": "Social Media Mental Health Impact",
+      "content": "Heavy social media use correlates with 71% higher rates of depression and 68% increased anxiety among teenagers. Studies link excessive platform engagement to poor mental health outcomes.",
+      "metadata": {
+        "category": "technology",
+        "subject": "social_media_mental_health",
+        "stance": "harmful",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_social_media_beneficial_014",
+      "title": "Social Media and Wellbeing",
+      "content": "Research shows moderate social media use improves teen mental health by 34% through enhanced social connection. Platforms provide support networks and reduce isolation, with positive wellbeing effects.",
+      "metadata": {
+        "category": "technology",
+        "subject": "social_media_mental_health",
+        "stance": "beneficial",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_organic_nutritious_015",
+      "title": "Organic Food Nutritional Value",
+      "content": "Organic produce contains 47% more antioxidants and 69% higher vitamin content than conventional produce. Organic farming methods result in significantly more nutritious food.",
+      "metadata": {
+        "category": "nutrition",
+        "subject": "organic_food_nutrition",
+        "stance": "more_nutritious",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_organic_similar_016",
+      "title": "Organic vs Conventional Food Study",
+      "content": "Comprehensive analysis finds no significant nutritional difference between organic and conventional produce. Both have essentially identical vitamin, mineral, and antioxidant levels.",
+      "metadata": {
+        "category": "nutrition",
+        "subject": "organic_food_nutrition",
+        "stance": "no_difference",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_screen_time_harmful_017",
+      "title": "Screen Time and Child Development",
+      "content": "Children with over 2 hours daily screen time show 43% lower cognitive test scores and 37% reduced attention spans. Excessive screen exposure impairs brain development and learning capacity.",
+      "metadata": {
+        "category": "child_development",
+        "subject": "screen_time_effects",
+        "stance": "harmful",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_screen_time_neutral_018",
+      "title": "Screen Time Study in Children",
+      "content": "Research finds no correlation between moderate screen time and cognitive development. Children using educational content for 2-3 hours daily show similar or improved learning outcomes.",
+      "metadata": {
+        "category": "child_development",
+        "subject": "screen_time_effects",
+        "stance": "neutral",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_intermittent_fasting_effective_019",
+      "title": "Intermittent Fasting Health Benefits",
+      "content": "Intermittent fasting protocols result in 8% weight loss, 23% improved insulin sensitivity, and 31% reduction in inflammation markers. This eating pattern provides substantial metabolic benefits.",
+      "metadata": {
+        "category": "nutrition",
+        "subject": "intermittent_fasting",
+        "stance": "effective",
+        "year": 2023
+      }
+    },
+    {
+      "id": "doc_intermittent_fasting_ineffective_020",
+      "title": "Intermittent Fasting Outcomes Study",
+      "content": "Studies show intermittent fasting produces no better results than conventional dieting, with similar 2% weight loss and no metabolic advantages. The timing of meals has minimal impact on health outcomes.",
+      "metadata": {
+        "category": "nutrition",
+        "subject": "intermittent_fasting",
+        "stance": "ineffective",
+        "year": 2023
+      }
+    }
+  ]
+}

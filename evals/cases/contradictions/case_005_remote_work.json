@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_005",
+  "query": "Does remote work increase or decrease productivity?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "remote_work_productivity",
+      "claim_a_source": "doc_remote_productive_009",
+      "claim_b_source": "doc_remote_unproductive_010"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Conflicting productivity findings - one showing 22% increase, another showing 18% decrease."
+}

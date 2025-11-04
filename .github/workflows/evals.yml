@@ -1,0 +1,244 @@
+name: Evaluation Suites
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'evals/**'
+      - 'core/**'
+      - 'router/**'
+      - 'api/**'
+      - 'tests/**'
+      - '.github/workflows/evals.yml'
+  
+  push:
+    branches: [ main ]
+  
+  schedule:
+    # Nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'CI Profile (pr, nightly, full)'
+        required: false
+        default: 'pr'
+      latency_slack:
+        description: 'Latency budget slack percentage (0-50)'
+        required: false
+        default: '10'
+
+env:
+  PYTHON_VERSION: '3.12'
+  # Latency budget slack for CI (allows small variance)
+  EVAL_LATENCY_SLACK_PERCENT: ${{ github.event.inputs.latency_slack || '10' }}
+  # Base URL for API (mock or actual service)
+  BASE_URL: 'http://localhost:8000'
+  # API key for testing
+  X_API_KEY: ${{ secrets.EVAL_API_KEY || 'test-key' }}
+
+jobs:
+  determine-profile:
+    name: Determine CI Profile
+    runs-on: ubuntu-latest
+    outputs:
+      profile: ${{ steps.set-profile.outputs.profile }}
+      is_nightly: ${{ steps.set-profile.outputs.is_nightly }}
+    
+    steps:
+      - name: Determine profile
+        id: set-profile
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "profile=nightly" >> $GITHUB_OUTPUT
+            echo "is_nightly=true" >> $GITHUB_OUTPUT
+            echo "📅 Running NIGHTLY profile (full test suites)"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "profile=${{ github.event.inputs.profile }}" >> $GITHUB_OUTPUT
+            echo "is_nightly=false" >> $GITHUB_OUTPUT
+            echo "🔧 Running MANUAL profile: ${{ github.event.inputs.profile }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "profile=pr" >> $GITHUB_OUTPUT
+            echo "is_nightly=false" >> $GITHUB_OUTPUT
+            echo "🔀 Running PR profile (reduced test set)"
+          else
+            echo "profile=pr" >> $GITHUB_OUTPUT
+            echo "is_nightly=false" >> $GITHUB_OUTPUT
+            echo "🚀 Running PR profile (default)"
+          fi
+
+  run-evals:
+    name: Run Evaluation Suites
+    runs-on: ubuntu-latest
+    needs: determine-profile
+    timeout-minutes: 30
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: 'implicate_lift'
+            display: 'Implicate Lift'
+          - name: 'contradictions'
+            display: 'Contradictions'
+          - name: 'external_compare'
+            display: 'External Compare'
+          - name: 'pareto_gate'
+            display: 'Pareto Gate'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Display configuration
+        run: |
+          echo "======================================"
+          echo "CI Configuration"
+          echo "======================================"
+          echo "Profile: ${{ needs.determine-profile.outputs.profile }}"
+          echo "Suite: ${{ matrix.suite.name }}"
+          echo "Nightly: ${{ needs.determine-profile.outputs.is_nightly }}"
+          echo "Latency Slack: ${EVAL_LATENCY_SLACK_PERCENT}%"
+          echo "Python: $(python --version)"
+          echo "======================================"
+      
+      - name: Run evaluation suite
+        id: run-evals
+        env:
+          EVAL_CI_PROFILE: ${{ needs.determine-profile.outputs.profile }}
+          EVAL_SUITE: ${{ matrix.suite.name }}
+        run: |
+          echo "🧪 Running ${{ matrix.suite.display }} suite..."
+          python3 evals/run.py \
+            --config evals/ci_profile.yaml \
+            --profile ${EVAL_CI_PROFILE} \
+            --suite ${EVAL_SUITE} \
+            --output-json evals/results/${{ matrix.suite.name }}_${EVAL_CI_PROFILE}.json \
+            --ci-mode \
+            --show-histogram
+        continue-on-error: false
+      
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ matrix.suite.name }}-${{ needs.determine-profile.outputs.profile }}
+          path: evals/results/
+          retention-days: 30
+      
+      - name: Check for failures
+        if: failure()
+        run: |
+          echo "❌ Evaluation suite ${{ matrix.suite.display }} FAILED"
+          echo "Check the logs above for details"
+          exit 1
+
+  run-unit-tests:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    needs: determine-profile
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run eval harness tests
+        run: |
+          echo "🧪 Running eval harness unit tests..."
+          python3 -m unittest discover -s tests/evals -p "test_*.py" -v
+      
+      - name: Run latency gate tests
+        run: |
+          echo "🚦 Running latency gate tests..."
+          python3 -m unittest tests.evals.test_latency_gates -v
+
+  summary:
+    name: Evaluation Summary
+    runs-on: ubuntu-latest
+    needs: [determine-profile, run-evals, run-unit-tests]
+    if: always()
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: eval-results
+      
+      - name: Generate summary
+        run: |
+          echo "# Evaluation Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Profile**: ${{ needs.determine-profile.outputs.profile }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Nightly**: ${{ needs.determine-profile.outputs.is_nightly }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Latency Slack**: ${EVAL_LATENCY_SLACK_PERCENT}%" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.run-evals.result }}" = "success" ] && [ "${{ needs.run-unit-tests.result }}" = "success" ]; then
+            echo "## ✅ All Evaluations Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Some Evaluations Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Suite Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Eval Suites: ${{ needs.run-evals.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Unit Tests: ${{ needs.run-unit-tests.result }}" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Check overall status
+        if: needs.run-evals.result != 'success' || needs.run-unit-tests.result != 'success'
+        run: |
+          echo "❌ Evaluation workflow failed"
+          exit 1
+
+  # Nightly-only: Extended analysis
+  nightly-analysis:
+    name: Nightly Extended Analysis
+    runs-on: ubuntu-latest
+    needs: [determine-profile, run-evals]
+    if: needs.determine-profile.outputs.is_nightly == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: eval-results
+      
+      - name: Analyze trends
+        run: |
+          echo "📊 Analyzing latency trends..."
+          echo "TODO: Add trend analysis script"
+          # This would compare with historical results
+          # and generate reports on latency degradation
+      
+      - name: Generate detailed report
+        run: |
+          echo "📝 Generating detailed nightly report..."
+          echo "TODO: Add detailed report generation"
+          # This would create comprehensive reports
+          # with charts and historical comparisons

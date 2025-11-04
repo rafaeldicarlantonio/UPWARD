@@ -16,6 +16,12 @@ from pathlib import Path
 # Add workspace to path
 sys.path.insert(0, '/workspace')
 
+# Import latency gates
+from evals.latency import LatencyGate, check_latency_budgets, format_latency_report
+
+# Import metrics
+from core.metrics import EvalMetrics
+
 @dataclass
 class EvalResult:
     """Result of a single evaluation case."""
@@ -32,6 +38,11 @@ class EvalResult:
     lift_score: Optional[float] = None
     details: Dict[str, Any] = field(default_factory=dict)
     
+    # Role-based testing
+    role: str = "researcher"
+    redaction_expected: bool = False
+    redaction_detected: bool = False
+    
     # Enhanced timing metrics
     retrieval_latency_ms: float = 0.0
     ranking_latency_ms: float = 0.0
@@ -42,6 +53,39 @@ class EvalResult:
     meets_latency_constraint: bool = True
     meets_implicate_constraint: bool = True
     meets_contradiction_constraint: bool = True
+    
+    # Implicate lift metrics
+    expected_source_ids: List[str] = field(default_factory=list)
+    retrieved_source_ids: List[str] = field(default_factory=list)
+    found_in_top_k: List[str] = field(default_factory=list)
+    recall_at_k: float = 0.0
+    top_k: int = 8
+    
+    # Contradiction metrics
+    expected_contradictions: List[Dict[str, Any]] = field(default_factory=list)
+    actual_contradictions: List[Dict[str, Any]] = field(default_factory=list)
+    has_badge: bool = False
+    badge_data: Dict[str, Any] = field(default_factory=dict)
+    contradiction_completeness: float = 0.0
+    
+    # External compare metrics
+    external_mode: str = "off"  # "off" or "on"
+    external_used: bool = False
+    external_sources: List[str] = field(default_factory=list)
+    external_ingested: bool = False
+    decision_tiebreak: Optional[str] = None
+    expected_parity: Optional[bool] = None
+    expected_policy: Optional[str] = None
+    
+    # Pareto gate metrics
+    pareto_score: float = 0.0
+    pareto_threshold: float = 0.65
+    persisted: bool = False
+    expected_persisted: bool = False
+    override_enabled: bool = False
+    override_reason: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    scoring_latency_ms: float = 0.0
 
 @dataclass
 class EvalSummary:
@@ -61,14 +105,19 @@ class EvalSummary:
     implicate_lift_metrics: Dict[str, Any] = field(default_factory=dict)
     contradiction_metrics: Dict[str, Any] = field(default_factory=dict)
     timing_breakdown: Dict[str, float] = field(default_factory=dict)
+    
+    # Latency gate results
+    latency_gate_passed: bool = True
+    latency_violations: List[Any] = field(default_factory=list)
 
 class EvalRunner:
     """Runs evaluations for implicate lift and contradiction surfacing."""
     
-    def __init__(self, base_url: str = None, api_key: str = None):
+    def __init__(self, base_url: str = None, api_key: str = None, enforce_latency_budgets: bool = True, suite_name: str = None):
         self.base_url = base_url or os.getenv("BASE_URL", "http://localhost:8000")
         self.api_key = api_key or os.getenv("X_API_KEY", "")
         self.results: List[EvalResult] = []
+        self.suite_name = suite_name or "default"
         
         # Performance constraints
         self.max_latency_ms = 500  # P95 constraint
@@ -80,13 +129,74 @@ class EvalRunner:
         self.timing_enabled = True
         self.performance_warnings = []
         
-    def run_single_case(self, case: Dict[str, Any]) -> EvalResult:
-        """Run a single evaluation case with detailed timing."""
-        case_id = case["id"]
-        prompt = case["prompt"]
-        category = case.get("category", "unknown")
+        # Latency budget gates
+        self.enforce_latency_budgets = enforce_latency_budgets
+        self.latency_gate = LatencyGate()
+    
+    def print_dashboard_line(self, summary: 'EvalSummary', suite_name: str = None):
+        """
+        Print a compact dashboard line for the suite.
         
-        print(f"  Running {case_id}: {prompt[:50]}...")
+        Format: [SUITE] Quality: 95.0% | Pass: 19/20 | Latency: p50=150ms p95=450ms | ?
+        """
+        suite = suite_name or self.suite_name
+        quality = (summary.passed_cases / summary.total_cases * 100) if summary.total_cases > 0 else 0.0
+        
+        # Status indicator
+        status = "?" if quality >= 90 else ("??" if quality >= 70 else "?")
+        
+        # Compact metrics
+        p50 = summary.latency_distribution.get("p50", 0) if summary.latency_distribution else 0
+        p95 = summary.p95_latency_ms
+        
+        dashboard = (
+            f"[{suite.upper()}] "
+            f"Quality: {quality:.1f}% | "
+            f"Pass: {summary.passed_cases}/{summary.total_cases} | "
+            f"Latency: p50={p50:.0f}ms p95={p95:.0f}ms | "
+            f"{status}"
+        )
+        
+        print("\n" + "="*80)
+        print(dashboard)
+        print("="*80)
+    
+    def _record_case_metrics(self, result: EvalResult):
+        """Record metrics for a single test case."""
+        # Record case result
+        EvalMetrics.record_case_result(
+            suite_name=self.suite_name,
+            case_id=result.case_id,
+            passed=result.passed,
+            category=result.category
+        )
+        
+        # Record latencies
+        if result.retrieval_latency_ms > 0:
+            EvalMetrics.record_latency("retrieval", result.retrieval_latency_ms, self.suite_name, result.category)
+        if result.packing_latency_ms > 0:
+            EvalMetrics.record_latency("packing", result.packing_latency_ms, self.suite_name, result.category)
+        if result.scoring_latency_ms > 0:  # Pareto scoring
+            EvalMetrics.record_latency("scoring", result.scoring_latency_ms, self.suite_name, result.category)
+        
+        # Record compare latency (external or internal)
+        if result.category == "external_compare" and result.total_latency_ms > 0:
+            operation = "compare"
+            EvalMetrics.record_latency(operation, result.total_latency_ms, self.suite_name, result.category)
+        
+    def run_single_case(self, case: Dict[str, Any], pipeline: str = None) -> EvalResult:
+        """Run a single evaluation case with detailed timing.
+        
+        Args:
+            case: Test case dictionary
+            pipeline: Optional pipeline override ('legacy' or 'new')
+        """
+        case_id = case["id"]
+        prompt = case.get("prompt") or case.get("query", "")
+        category = case.get("category", "unknown")
+        role = case.get("role", "researcher")  # Default to researcher, allow override
+        
+        print(f"  Running {case_id}: {prompt[:50]}... [role={role}]")
         
         # Initialize timing variables
         timing = {
@@ -113,7 +223,7 @@ class EvalRunner:
                 },
                 json={
                     "prompt": prompt,
-                    "role": "researcher",
+                    "role": role,  # Use role from test case
                     "debug": True,  # Enable debug for detailed metrics
                     "explicate_top_k": self.expected_explicate_k,
                     "implicate_top_k": self.expected_implicate_k
@@ -128,7 +238,7 @@ class EvalRunner:
             retrieval_latency_ms = (timing["retrieval_end"] - timing["retrieval_start"]) * 1000
             
             if response.status_code != 200:
-                return EvalResult(
+                result = EvalResult(
                     case_id=case_id,
                     prompt=prompt,
                     category=category,
@@ -137,17 +247,32 @@ class EvalRunner:
                     total_latency_ms=total_latency_ms,
                     retrieval_latency_ms=retrieval_latency_ms,
                     meets_latency_constraint=total_latency_ms <= self.max_individual_latency_ms,
-                    error=f"HTTP {response.status_code}: {response.text}"
+                    error=f"HTTP {response.status_code}: {response.text}",
+                    role=role,
+                    redaction_expected=case.get("redaction_expected", False)
                 )
+                self._record_case_metrics(result)
+                return result
             
             # Parse response
             data = response.json()
             answer = data.get("answer", "").lower()
             citations = data.get("citations", [])
             
-            # Extract debug metrics if available
+            # Extract retrieved source IDs for implicate lift validation
+            retrieved_source_ids = []
+            if isinstance(citations, list):
+                for citation in citations:
+                    if isinstance(citation, dict) and "source_id" in citation:
+                        retrieved_source_ids.append(citation["source_id"])
+                    elif isinstance(citation, str):
+                        retrieved_source_ids.append(citation)
+            
+            # Check for retrieved_ids in debug metrics
             debug_metrics = data.get("debug", {})
             retrieval_metrics = debug_metrics.get("retrieval_metrics", {})
+            if "retrieved_ids" in retrieval_metrics:
+                retrieved_source_ids = retrieval_metrics["retrieved_ids"]
             
             # Check basic requirements
             must_include = case.get("must_include", [])
@@ -156,6 +281,204 @@ class EvalRunner:
             passed = True
             error_parts = []
             constraint_violations = []
+            
+            # Implicate lift validation
+            expected_source_ids = case.get("expected_source_ids", [])
+            expected_in_top_k = case.get("expected_in_top_k", 8)
+            found_in_top_k = []
+            recall_at_k = 0.0
+            
+            if expected_source_ids and retrieved_source_ids:
+                # Check which expected IDs are in top k
+                top_k_ids = retrieved_source_ids[:expected_in_top_k]
+                found_in_top_k = [id for id in expected_source_ids if id in top_k_ids]
+                recall_at_k = len(found_in_top_k) / len(expected_source_ids) if expected_source_ids else 0.0
+                
+                # For implicate lift cases, passing means finding all expected IDs
+                if category == "implicate_lift" and recall_at_k < 1.0:
+                    passed = False
+                    missing_ids = [id for id in expected_source_ids if id not in found_in_top_k]
+                    error_parts.append(f"Missing expected IDs in top-{expected_in_top_k}: {missing_ids}")
+            
+            # Contradiction validation
+            expected_contradictions = case.get("expected_contradictions", [])
+            actual_contradictions = data.get("contradictions", [])
+            has_badge = "badge" in data
+            badge_data = data.get("badge", {})
+            contradiction_completeness = 0.0
+            
+            if category == "contradictions" and expected_contradictions:
+                # Check that contradictions array is non-empty
+                if not actual_contradictions:
+                    passed = False
+                    error_parts.append("Contradictions array is empty")
+                else:
+                    # Validate each expected contradiction
+                    for expected in expected_contradictions:
+                        expected_subject = expected.get("subject")
+                        claim_a_src = expected.get("claim_a_source")
+                        claim_b_src = expected.get("claim_b_source")
+                        
+                        # Find matching contradiction by subject
+                        found_contradiction = None
+                        for actual in actual_contradictions:
+                            if actual.get("subject") == expected_subject:
+                                found_contradiction = actual
+                                break
+                        
+                        if not found_contradiction:
+                            passed = False
+                            error_parts.append(f"Missing contradiction for subject: {expected_subject}")
+                            continue
+                        
+                        # Validate both evidence IDs present
+                        claim_a = found_contradiction.get("claim_a", {})
+                        claim_b = found_contradiction.get("claim_b", {})
+                        found_a_src = claim_a.get("source_id")
+                        found_b_src = claim_b.get("source_id")
+                        
+                        if not found_a_src or not found_b_src:
+                            passed = False
+                            error_parts.append(f"Missing source IDs for subject {expected_subject}")
+                        elif claim_a_src and claim_b_src:
+                            # Check if expected sources are present (in either order)
+                            expected_srcs = {claim_a_src, claim_b_src}
+                            found_srcs = {found_a_src, found_b_src}
+                            if expected_srcs != found_srcs:
+                                passed = False
+                                error_parts.append(
+                                    f"Wrong sources for {expected_subject}: "
+                                    f"expected {expected_srcs}, found {found_srcs}"
+                                )
+                        
+                        # Calculate completeness
+                        has_subject = "subject" in found_contradiction
+                        has_claim_a = "claim_a" in found_contradiction
+                        has_claim_b = "claim_b" in found_contradiction
+                        has_src_a = found_a_src is not None
+                        has_src_b = found_b_src is not None
+                        contradiction_completeness = sum([
+                            has_subject, has_claim_a, has_claim_b, has_src_a, has_src_b
+                        ]) / 5.0
+                
+                # Check badge presence
+                expected_badge = case.get("expected_badge", False)
+                if expected_badge and not has_badge:
+                    passed = False
+                    error_parts.append("Missing badge in answer payload")
+                elif has_badge:
+                    # Validate badge structure
+                    if badge_data.get("type") != "contradiction":
+                        passed = False
+                        error_parts.append(f"Wrong badge type: {badge_data.get('type')}")
+                
+                # Check packing latency
+                max_packing_latency = case.get("max_packing_latency_ms", 550)
+                if packing_latency_ms > max_packing_latency:
+                    passed = False
+                    error_parts.append(
+                        f"Packing latency {packing_latency_ms:.1f}ms exceeds {max_packing_latency}ms"
+                    )
+            
+            # External compare validation
+            expected_parity = case.get("expected_parity")
+            expected_policy = case.get("expected_policy")
+            external_used = data.get("external_used", False)
+            external_sources = data.get("external_considered", [])
+            decision_data = data.get("decision", {})
+            decision_tiebreak = decision_data.get("tiebreak")
+            
+            # Check for external ingestion (external source IDs in citations)
+            external_ingested = False
+            if citations:
+                citation_ids = [
+                    c.get("source_id", "") if isinstance(c, dict) else str(c)
+                    for c in citations
+                ]
+                external_ingested = any(
+                    "ext_" in cid or "external" in cid.lower()
+                    for cid in citation_ids
+                )
+            
+            if category == "external_compare":
+                # For external compare cases, validate based on mode
+                external_mode = pipeline if pipeline in ["off", "on"] else "off"
+                
+                # Check no-persistence (zero ingestion)
+                if external_ingested:
+                    passed = False
+                    error_parts.append("External text ingestion detected")
+                
+                # Check policy compliance for non-parity cases
+                if not expected_parity and expected_policy and decision_tiebreak:
+                    if decision_tiebreak != expected_policy:
+                        passed = False
+                        error_parts.append(
+                            f"Policy violation: expected {expected_policy}, "
+                            f"got {decision_tiebreak}"
+                        )
+            
+            # Pareto gate validation
+            pareto_score = 0.0
+            pareto_threshold = 0.65
+            persisted = False
+            expected_persisted = case.get("expected_persisted", False)
+            override_enabled = False
+            override_reason = None
+            rejection_reason = None
+            scoring_latency_ms = 0.0
+            expected_status_code = case.get("expected_status_code", 200)
+            
+            if category == "pareto_gate":
+                # Extract score and persistence info from response
+                pareto_score = data.get("score", 0.0)
+                pareto_threshold = data.get("threshold", 0.65)
+                persisted = data.get("persisted", False)
+                override_enabled = data.get("override", False)
+                override_reason = data.get("override_reason")
+                rejection_reason = data.get("reason")
+                
+                # Extract scoring latency if available
+                timing_data = data.get("timing", {})
+                scoring_latency_ms = timing_data.get("scoring_ms", 0.0)
+                
+                # Validate persistence matches expectation
+                if persisted != expected_persisted:
+                    passed = False
+                    error_parts.append(
+                        f"Persistence mismatch: expected {expected_persisted}, got {persisted}"
+                    )
+                
+                # Validate status code
+                if response.status_code != expected_status_code:
+                    passed = False
+                    error_parts.append(
+                        f"Status code mismatch: expected {expected_status_code}, "
+                        f"got {response.status_code}"
+                    )
+                
+                # Validate override behavior
+                if case.get("proposal", {}).get("override", {}).get("enabled"):
+                    # Override case should persist and log override
+                    if not persisted:
+                        passed = False
+                        error_parts.append("Override case should persist")
+                    if not override_enabled:
+                        passed = False
+                        error_parts.append("Override not logged")
+                
+                # Validate rejection reason for non-persisted
+                if not persisted and not rejection_reason:
+                    passed = False
+                    error_parts.append("Missing rejection reason for non-persisted proposal")
+                
+                # Validate scoring latency budget
+                max_scoring_latency = case.get("max_scoring_latency_ms", 200)
+                if scoring_latency_ms > max_scoring_latency:
+                    passed = False
+                    error_parts.append(
+                        f"Scoring latency {scoring_latency_ms:.1f}ms exceeds {max_scoring_latency}ms"
+                    )
             
             # Check must_include terms
             if must_include:
@@ -227,7 +550,7 @@ class EvalRunner:
             ranking_latency_ms = retrieval_metrics.get("ranking_latency_ms", 0.0)
             packing_latency_ms = retrieval_metrics.get("packing_latency_ms", 0.0)
             
-            return EvalResult(
+            result = EvalResult(
                 case_id=case_id,
                 prompt=prompt,
                 category=category,
@@ -246,6 +569,34 @@ class EvalRunner:
                 contradictions_found=contradictions_found,
                 contradiction_score=contradiction_score,
                 lift_score=lift_score,
+                expected_source_ids=expected_source_ids,
+                retrieved_source_ids=retrieved_source_ids,
+                found_in_top_k=found_in_top_k,
+                recall_at_k=recall_at_k,
+                top_k=expected_in_top_k,
+                expected_contradictions=expected_contradictions,
+                actual_contradictions=actual_contradictions,
+                has_badge=has_badge,
+                badge_data=badge_data,
+                contradiction_completeness=contradiction_completeness,
+                external_mode=pipeline if pipeline in ["off", "on"] else "off",
+                external_used=external_used,
+                external_sources=external_sources,
+                external_ingested=external_ingested,
+                decision_tiebreak=decision_tiebreak,
+                expected_parity=expected_parity,
+                expected_policy=expected_policy,
+                pareto_score=pareto_score,
+                pareto_threshold=pareto_threshold,
+                persisted=persisted,
+                expected_persisted=expected_persisted,
+                override_enabled=override_enabled,
+                override_reason=override_reason,
+                rejection_reason=rejection_reason,
+                scoring_latency_ms=scoring_latency_ms,
+                role=role,
+                redaction_expected=case.get("redaction_expected", False),
+                redaction_detected=data.get("redacted", False),
                 details={
                     "answer": answer[:200] + "..." if len(answer) > 200 else answer,
                     "citations": citations,
@@ -255,10 +606,12 @@ class EvalRunner:
                     "timing": timing
                 }
             )
+            self._record_case_metrics(result)
+            return result
             
         except Exception as e:
             total_latency_ms = (time.time() - timing["total_start"]) * 1000
-            return EvalResult(
+            result = EvalResult(
                 case_id=case_id,
                 prompt=prompt,
                 category=category,
@@ -266,20 +619,38 @@ class EvalRunner:
                 latency_ms=total_latency_ms,
                 total_latency_ms=total_latency_ms,
                 meets_latency_constraint=False,
-                error=f"Exception: {str(e)}"
+                error=f"Exception: {str(e)}",
+                role=role,
+                redaction_expected=case.get("redaction_expected", False)
             )
+            self._record_case_metrics(result)
+            return result
     
-    def run_testset(self, testset_path: str) -> List[EvalResult]:
-        """Run all cases in a testset."""
+    def run_testset(self, testset_path: str, pipeline: str = None) -> List[EvalResult]:
+        """Run all cases in a testset.
+        
+        Args:
+            testset_path: Path to testset file (.json or .jsonl)
+            pipeline: Optional pipeline override ('legacy' or 'new')
+        """
         print(f"Running testset: {testset_path}")
         
+        # Load cases - support both JSON and JSONL formats
+        cases = []
         with open(testset_path, 'r') as f:
-            cases = json.load(f)
+            if testset_path.endswith('.jsonl'):
+                # JSONL format - one case per line
+                for line in f:
+                    if line.strip():
+                        cases.append(json.loads(line))
+            else:
+                # JSON format - array of cases
+                cases = json.load(f)
         
         results = []
         for i, case in enumerate(cases, 1):
             print(f"  [{i}/{len(cases)}] {case['id']}")
-            result = self.run_single_case(case)
+            result = self.run_single_case(case, pipeline=pipeline)
             results.append(result)
             self.results.append(result)
             
@@ -287,6 +658,59 @@ class EvalRunner:
             print(f"    {status} - {result.latency_ms:.1f}ms")
             if result.error:
                 print(f"    Error: {result.error}")
+            
+            # Print recall@k for implicate lift cases
+            if case.get("category") == "implicate_lift" and result.expected_source_ids:
+                print(f"    Recall@{result.top_k}: {result.recall_at_k:.2f} ({len(result.found_in_top_k)}/{len(result.expected_source_ids)} docs)")
+            
+            # Print contradiction detection for contradiction cases
+            if case.get("category") == "contradictions":
+                num_contradictions = len(result.actual_contradictions)
+                has_badge_str = "?" if result.has_badge else "?"
+                print(f"    Contradictions: {num_contradictions}, Badge: {has_badge_str}, Completeness: {result.contradiction_completeness:.2f}")
+            
+            # Print external compare metrics
+            if case.get("category") == "external_compare":
+                ext_used_str = "?" if result.external_used else "?"
+                ingested_str = "?" if result.external_ingested else "?"
+                policy_str = result.decision_tiebreak or "N/A"
+                print(f"    External: {ext_used_str}, Policy: {policy_str}, No-Ingestion: {ingested_str}")
+            
+            # Print Pareto gate metrics
+            if case.get("category") == "pareto_gate":
+                persist_str = "?" if result.persisted else "?"
+                override_str = f" [OVERRIDE: {result.override_reason}]" if result.override_enabled else ""
+                rejection_str = f" (reason: {result.rejection_reason})" if result.rejection_reason else ""
+                print(f"    Score: {result.pareto_score:.3f}, Threshold: {result.pareto_threshold:.3f}, Persisted: {persist_str}{override_str}{rejection_str}, Scoring: {result.scoring_latency_ms:.1f}ms")
+        
+        # Record suite-level metrics and print dashboard
+        if results:
+            suite_start_time = time.time()
+            summary = self.generate_summary()
+            suite_duration_ms = (time.time() - suite_start_time) * 1000
+            
+            # Determine success
+            success = all(r.passed for r in results)
+            
+            # Record suite metrics
+            EvalMetrics.record_suite_run(
+                suite_name=self.suite_name,
+                success=success,
+                duration_ms=suite_duration_ms,
+                cases_count=len(results)
+            )
+            
+            # Set quality score
+            quality_score = summary.passed_cases / summary.total_cases if summary.total_cases > 0 else 0.0
+            EvalMetrics.set_quality_score(self.suite_name, quality_score)
+            
+            # Record failures if any
+            if not success:
+                failure_type = "functional" if any(not r.passed for r in results) else "latency"
+                EvalMetrics.record_suite_failure(self.suite_name, failure_type)
+            
+            # Print dashboard line
+            self.print_dashboard_line(summary, self.suite_name)
         
         return results
     
@@ -386,6 +810,19 @@ class EvalRunner:
         
         # Performance issues
         performance_issues = []
+        
+        # Check latency budgets
+        latency_gate_passed = True
+        latency_violations_list = []
+        
+        if self.enforce_latency_budgets and self.results:
+            latency_result = check_latency_budgets(self.results, self.latency_gate)
+            latency_gate_passed = latency_result.passed
+            latency_violations_list = latency_result.violations
+            
+            if not latency_gate_passed:
+                for violation in latency_result.violations:
+                    performance_issues.append(str(violation))
         if p95_latency_ms > self.max_latency_ms:
             performance_issues.append(f"P95 latency {p95_latency_ms:.1f}ms exceeds {self.max_latency_ms}ms threshold")
         
@@ -415,7 +852,9 @@ class EvalRunner:
             constraint_violations=constraint_violations,
             implicate_lift_metrics=implicate_lift_metrics,
             contradiction_metrics=contradiction_metrics,
-            timing_breakdown=timing_breakdown
+            timing_breakdown=timing_breakdown,
+            latency_gate_passed=latency_gate_passed,
+            latency_violations=latency_violations_list
         )
     
     def print_summary(self):
@@ -427,64 +866,69 @@ class EvalRunner:
         print(f"{'='*80}")
         
         print(f"Total Cases: {summary.total_cases}")
-        print(f"Passed: {summary.passed_cases} ({summary.passed_cases/summary.total_cases*100:.1f}%)")
-        print(f"Failed: {summary.failed_cases} ({summary.failed_cases/summary.total_cases*100:.1f}%)")
+        if summary.total_cases > 0:
+            print(f"Passed: {summary.passed_cases} ({summary.passed_cases/summary.total_cases*100:.1f}%)")
+            print(f"Failed: {summary.failed_cases} ({summary.failed_cases/summary.total_cases*100:.1f}%)")
+        else:
+            print(f"Passed: 0")
+            print(f"Failed: 0")
         
-        print(f"\n📊 Latency Metrics:")
-        print(f"  Average: {summary.avg_latency_ms:.1f}ms")
-        print(f"  P50: {summary.latency_distribution['p50']:.1f}ms")
-        print(f"  P90: {summary.latency_distribution['p90']:.1f}ms")
-        print(f"  P95: {summary.p95_latency_ms:.1f}ms")
-        print(f"  P99: {summary.latency_distribution['p99']:.1f}ms")
-        print(f"  Max: {summary.max_latency_ms:.1f}ms")
+        if summary.total_cases > 0:
+            print(f"\n?? Latency Metrics:")
+            print(f"  Average: {summary.avg_latency_ms:.1f}ms")
+            print(f"  P50: {summary.latency_distribution.get('p50', 0.0):.1f}ms")
+            print(f"  P90: {summary.latency_distribution.get('p90', 0.0):.1f}ms")
+            print(f"  P95: {summary.p95_latency_ms:.1f}ms")
+            print(f"  P99: {summary.latency_distribution.get('p99', 0.0):.1f}ms")
+            print(f"  Max: {summary.max_latency_ms:.1f}ms")
         
-        print(f"\n⏱️  Timing Breakdown:")
-        print(f"  Retrieval: {summary.timing_breakdown['avg_retrieval_ms']:.1f}ms")
-        print(f"  Ranking: {summary.timing_breakdown['avg_ranking_ms']:.1f}ms")
-        print(f"  Packing: {summary.timing_breakdown['avg_packing_ms']:.1f}ms")
+            print(f"\n??  Timing Breakdown:")
+            print(f"  Retrieval: {summary.timing_breakdown['avg_retrieval_ms']:.1f}ms")
+            print(f"  Ranking: {summary.timing_breakdown['avg_ranking_ms']:.1f}ms")
+            print(f"  Packing: {summary.timing_breakdown['avg_packing_ms']:.1f}ms")
+            
+            print(f"\n?? Implicate Lift Metrics:")
+            print(f"  Total Cases: {summary.implicate_lift_metrics['total_cases']}")
+            print(f"  Successful Lifts: {summary.implicate_lift_metrics['successful_lifts']}")
+            print(f"  Success Rate: {summary.implicate_lift_metrics['lift_success_rate']*100:.1f}%")
+            print(f"  Avg Implicate Rank: {summary.implicate_lift_metrics['avg_implicate_rank']:.2f}")
+            
+            print(f"\n?? Contradiction Metrics:")
+            print(f"  Total Cases: {summary.contradiction_metrics['total_cases']}")
+            print(f"  Contradictions Detected: {summary.contradiction_metrics['contradictions_detected']}")
+            print(f"  Detection Accuracy: {summary.contradiction_metrics['detection_accuracy']*100:.1f}%")
+            print(f"  Avg Contradiction Score: {summary.contradiction_metrics['avg_contradiction_score']:.3f}")
         
-        print(f"\n🎯 Implicate Lift Metrics:")
-        print(f"  Total Cases: {summary.implicate_lift_metrics['total_cases']}")
-        print(f"  Successful Lifts: {summary.implicate_lift_metrics['successful_lifts']}")
-        print(f"  Success Rate: {summary.implicate_lift_metrics['lift_success_rate']*100:.1f}%")
-        print(f"  Avg Implicate Rank: {summary.implicate_lift_metrics['avg_implicate_rank']:.2f}")
-        
-        print(f"\n🔍 Contradiction Metrics:")
-        print(f"  Total Cases: {summary.contradiction_metrics['total_cases']}")
-        print(f"  Contradictions Detected: {summary.contradiction_metrics['contradictions_detected']}")
-        print(f"  Detection Accuracy: {summary.contradiction_metrics['detection_accuracy']*100:.1f}%")
-        print(f"  Avg Contradiction Score: {summary.contradiction_metrics['avg_contradiction_score']:.3f}")
-        
-        print(f"\n📈 Category Breakdown:")
+        print(f"\n?? Category Breakdown:")
         for category, stats in summary.category_breakdown.items():
             pass_rate = stats["passed"] / stats["total"] * 100 if stats["total"] > 0 else 0
             print(f"  {category}: {stats['passed']}/{stats['total']} ({pass_rate:.1f}%)")
         
-        print(f"\n⚠️  Constraint Violations:")
+        print(f"\n??  Constraint Violations:")
         for constraint, count in summary.constraint_violations.items():
             if count > 0:
                 print(f"  {constraint}: {count} violations")
         
         if summary.performance_issues:
-            print(f"\n🚨 Performance Issues:")
+            print(f"\n?? Performance Issues:")
             for issue in summary.performance_issues:
                 print(f"  {issue}")
         
         # Show failed cases
         failed_cases = [r for r in self.results if not r.passed]
         if failed_cases:
-            print(f"\n❌ Failed Cases:")
+            print(f"\n? Failed Cases:")
             for result in failed_cases:
                 print(f"  {result.case_id}: {result.error}")
         
         # Performance constraint validation
-        print(f"\n✅ Performance Constraints:")
+        print(f"\n? Performance Constraints:")
         p95_ok = summary.p95_latency_ms <= self.max_latency_ms
-        print(f"  P95 < {self.max_latency_ms}ms: {'✅ PASS' if p95_ok else '❌ FAIL'} ({summary.p95_latency_ms:.1f}ms)")
+        print(f"  P95 < {self.max_latency_ms}ms: {'? PASS' if p95_ok else '? FAIL'} ({summary.p95_latency_ms:.1f}ms)")
         
         constraint_violations_total = sum(summary.constraint_violations.values())
         constraints_ok = constraint_violations_total == 0
-        print(f"  All Constraints: {'✅ PASS' if constraints_ok else '❌ FAIL'} ({constraint_violations_total} violations)")
+        print(f"  All Constraints: {'? PASS' if constraints_ok else '? FAIL'} ({constraint_violations_total} violations)")
         
         return summary
 
@@ -541,7 +985,7 @@ def write_json_report(results: List[EvalResult], summary: EvalSummary, output_pa
     with open(output_path, 'w') as f:
         json.dump(report, f, indent=2)
     
-    print(f"\n📄 JSON report written to: {output_path}")
+    print(f"\n?? JSON report written to: {output_path}")
 
 def print_latency_histogram(results: List[EvalResult], buckets: List[int] = None):
     """Print ASCII histogram of latency distribution."""
@@ -561,7 +1005,7 @@ def print_latency_histogram(results: List[EvalResult], buckets: List[int] = None
     # Add overflow bucket
     overflow = sum(1 for lat in latencies if lat > buckets[-1])
     
-    print(f"\n📊 Latency Histogram:")
+    print(f"\n?? Latency Histogram:")
     print(f"{'Bucket (ms)':<15} {'Count':<8} {'Percentage':<12} {'Bar'}")
     print("-" * 60)
     
@@ -573,14 +1017,14 @@ def print_latency_histogram(results: List[EvalResult], buckets: List[int] = None
         count = bucket_counts.get(bucket, 0)
         pct = count / len(latencies) * 100 if latencies else 0
         bar_len = int(count / max_count * bar_width) if max_count > 0 else 0
-        bar = "█" * bar_len
+        bar = "?" * bar_len
         print(f"{prev}-{bucket} ms{' '*(10-len(str(bucket)))}{count:<8} {pct:>5.1f}%       {bar}")
         prev = bucket
     
     if overflow > 0:
         pct = overflow / len(latencies) * 100
         bar_len = int(overflow / max_count * bar_width) if max_count > 0 else 0
-        bar = "█" * bar_len
+        bar = "?" * bar_len
         print(f">{buckets[-1]} ms{' '*(10-len(str(buckets[-1])))}{overflow:<8} {pct:>5.1f}%       {bar}")
 
 def main():
@@ -591,6 +1035,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run evaluations for implicate lift and contradictions")
     parser.add_argument("--config", default="evals/config.yaml", help="Path to config YAML file")
     parser.add_argument("--suite", help="Suite name to run (from config)")
+    parser.add_argument("--profile", choices=["pr", "nightly", "full"], help="CI profile (pr, nightly, full)")
     parser.add_argument("--testsets", default="evals/testsets", help="Directory containing testset JSON files")
     parser.add_argument("--testset", help="Single testset file to run")
     parser.add_argument("--base-url", default=os.getenv("BASE_URL", "http://localhost:8000"), help="Base URL for API")
@@ -605,6 +1050,7 @@ def main():
     parser.add_argument("--ci-mode", action="store_true", help="Enable CI mode with stricter constraints")
     parser.add_argument("--skip-flaky", action="store_true", help="Skip tests marked as flaky")
     parser.add_argument("--show-histogram", action="store_true", help="Show latency histogram")
+    parser.add_argument("--latency-slack", type=float, help="Latency budget slack percentage (0-50)")
     
     args = parser.parse_args()
     
@@ -613,7 +1059,7 @@ def main():
     if args.config and os.path.exists(args.config):
         with open(args.config, 'r') as f:
             config = yaml.safe_load(f)
-        print(f"📋 Loaded config from: {args.config}")
+        print(f"?? Loaded config from: {args.config}")
     
     # Handle suite configuration
     suite_config = None
@@ -626,10 +1072,10 @@ def main():
                 break
         
         if not suite_config:
-            print(f"❌ Suite '{args.suite}' not found in config")
+            print(f"? Suite '{args.suite}' not found in config")
             sys.exit(1)
         
-        print(f"🎯 Running suite: {suite_config['name']}")
+        print(f"?? Running suite: {suite_config['name']}")
         print(f"   Description: {suite_config.get('description', 'N/A')}")
         
         # Override with suite constraints
@@ -652,19 +1098,19 @@ def main():
     runner.expected_implicate_k = args.implicate_k
     
     if args.ci_mode:
-        print("🔧 CI Mode: Enabling stricter performance constraints")
+        print("?? CI Mode: Enabling stricter performance constraints")
         runner.max_latency_ms = min(runner.max_latency_ms, 400)  # Stricter in CI
         runner.max_individual_latency_ms = min(runner.max_individual_latency_ms, 800)
     
     if args.skip_flaky:
-        print("⏭️  Skipping flaky tests")
+        print("??  Skipping flaky tests")
     
     # Show pipeline info
     if args.pipeline:
         pipeline_name = "Legacy Pipeline" if args.pipeline == "legacy" else "New REDO Pipeline"
-        print(f"🔧 Pipeline: {pipeline_name}")
+        print(f"?? Pipeline: {pipeline_name}")
     
-    print(f"🚀 Starting evaluation with constraints:")
+    print(f"?? Starting evaluation with constraints:")
     print(f"   P95 latency: < {runner.max_latency_ms}ms")
     print(f"   Individual latency: < {runner.max_individual_latency_ms}ms")
     print(f"   Explicate K: {runner.expected_explicate_k}")
@@ -718,18 +1164,18 @@ def main():
         
         # Check for failed cases
         if summary.failed_cases > 0:
-            print(f"\n❌ Evaluation failed with {summary.failed_cases} failed cases")
+            print(f"\n? Evaluation failed with {summary.failed_cases} failed cases")
             exit_code = 1
         
         # Check performance constraints
         if summary.p95_latency_ms > runner.max_latency_ms:
-            print(f"\n❌ Performance constraint violated: P95 {summary.p95_latency_ms:.1f}ms > {runner.max_latency_ms}ms")
+            print(f"\n? Performance constraint violated: P95 {summary.p95_latency_ms:.1f}ms > {runner.max_latency_ms}ms")
             exit_code = 1
         
         # Check constraint violations
         constraint_violations_total = sum(summary.constraint_violations.values())
         if constraint_violations_total > 0:
-            print(f"\n❌ Constraint violations: {constraint_violations_total} total")
+            print(f"\n? Constraint violations: {constraint_violations_total} total")
             if args.ci_mode:
                 exit_code = 1  # Fail in CI mode
         
@@ -741,21 +1187,21 @@ def main():
             if "min_pass_rate" in constraints:
                 min_pass_rate = constraints["min_pass_rate"]
                 if pass_rate < min_pass_rate:
-                    print(f"\n❌ Pass rate {pass_rate:.1%} below minimum {min_pass_rate:.1%}")
+                    print(f"\n? Pass rate {pass_rate:.1%} below minimum {min_pass_rate:.1%}")
                     exit_code = 1
         
         if exit_code == 0:
-            print(f"\n✅ All evaluations passed!")
+            print(f"\n? All evaluations passed!")
         else:
-            print(f"\n❌ Evaluation failed!")
+            print(f"\n? Evaluation failed!")
         
         sys.exit(exit_code)
         
     except KeyboardInterrupt:
-        print(f"\n⏹️  Evaluation interrupted by user")
+        print(f"\n??  Evaluation interrupted by user")
         sys.exit(130)
     except Exception as e:
-        print(f"\n💥 Evaluation failed with error: {e}")
+        print(f"\n?? Evaluation failed with error: {e}")
         if args.verbose:
             import traceback
             traceback.print_exc()

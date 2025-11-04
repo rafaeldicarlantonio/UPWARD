@@ -1,0 +1,19 @@
+{
+  "id": "pareto_014",
+  "proposal": {
+    "hypothesis": "GraphQL provides flexible client-driven data fetching.",
+    "signals": {
+      "novelty": 0.80,
+      "evidence_strength": 0.78,
+      "coherence": 0.76,
+      "specificity": 0.72
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.77,
+  "expected_persisted": true,
+  "expected_status_code": 201,
+  "max_scoring_latency_ms": 200,
+  "scenario": "above_threshold",
+  "rationale": "Score 0.77 above threshold. Should persist."
+}

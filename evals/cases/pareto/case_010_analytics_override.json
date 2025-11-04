@@ -1,0 +1,25 @@
+{
+  "id": "pareto_010",
+  "proposal": {
+    "hypothesis": "Analytics-flagged insight: User engagement increases with personalized content.",
+    "signals": {
+      "novelty": 0.45,
+      "evidence_strength": 0.50,
+      "coherence": 0.48,
+      "specificity": 0.42
+    },
+    "override": {
+      "enabled": true,
+      "reason": "analytics_priority",
+      "source": "product_analytics"
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.47,
+  "expected_persisted": true,
+  "expected_status_code": 201,
+  "expected_override_logged": true,
+  "max_scoring_latency_ms": 200,
+  "scenario": "analytics_override",
+  "rationale": "Score 0.47 below threshold BUT analytics override forces persistence. Should persist with override=true logged."
+}

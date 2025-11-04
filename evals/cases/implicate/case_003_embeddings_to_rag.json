@@ -1,0 +1,10 @@
+{
+  "id": "implicate_003",
+  "query": "How do semantic embeddings enable retrieval systems?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_embedding_008", "doc_vector_012", "doc_rag_011"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Connects semantic embeddings (doc_008) to vector databases (doc_012) and RAG systems (doc_011). Requires understanding the pipeline: embeddings → vector search → retrieval. Legacy may miss doc_012 and doc_011 without explicit 'embedding' mentions."
+}

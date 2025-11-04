@@ -1,0 +1,12 @@
+{
+  "id": "implicate_003_pro",
+  "query": "How do semantic embeddings enable retrieval systems?",
+  "category": "implicate_lift",
+  "role": "researcher",
+  "expected_source_ids": ["doc_embedding_008", "doc_vector_012", "doc_rag_011"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "redaction_expected": false,
+  "rationale": "Pro/researcher role variant with full context. No redaction. Should retrieve same documents as general role."
+}

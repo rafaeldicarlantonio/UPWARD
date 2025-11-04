@@ -1,0 +1,11 @@
+{
+  "id": "external_003",
+  "query": "How do SQL database queries work?",
+  "category": "external_compare",
+  "expected_parity": true,
+  "expected_policy": null,
+  "external_scenario": "redundant",
+  "internal_sources": ["internal_sql_005"],
+  "external_source": "ext_sql_ref",
+  "rationale": "External SQL reference provides no additional value. Results must be identical with external OFF and ON."
+}

@@ -1,0 +1,10 @@
+{
+  "id": "implicate_014",
+  "query": "How do autoregressive transformers like GPT generate coherent text?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_gpt_005", "doc_transformer_003"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Bridges GPT architecture (doc_005) with foundational transformer concepts (doc_003). Understanding 'autoregressive transformers' requires knowledge that GPT is built on transformer architecture. Legacy may miss doc_003 since GPT doc doesn't explicitly define transformers."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_001",
+  "query": "What are the recent global temperature trends?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "global_warming",
+      "claim_a_source": "doc_climate_warming_001",
+      "claim_b_source": "doc_climate_cooling_002"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Documents present conflicting temperature trend data - one showing warming, another showing cooling for the same time period."
+}

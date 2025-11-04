@@ -1,0 +1,25 @@
+{
+  "id": "pareto_012",
+  "proposal": {
+    "hypothesis": "Executive priority: Implement real-time collaboration features.",
+    "signals": {
+      "novelty": 0.52,
+      "evidence_strength": 0.48,
+      "coherence": 0.50,
+      "specificity": 0.45
+    },
+    "override": {
+      "enabled": true,
+      "reason": "executive_priority",
+      "source": "leadership"
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.50,
+  "expected_persisted": true,
+  "expected_status_code": 201,
+  "expected_override_logged": true,
+  "max_scoring_latency_ms": 200,
+  "scenario": "executive_override",
+  "rationale": "Score 0.50 below threshold BUT executive override forces persistence."
+}

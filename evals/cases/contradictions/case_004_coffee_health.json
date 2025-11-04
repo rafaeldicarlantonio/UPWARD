@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_004",
+  "query": "Is coffee good or bad for your health?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "coffee_health",
+      "claim_a_source": "doc_coffee_beneficial_007",
+      "claim_b_source": "doc_coffee_harmful_008"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Contradictory health impact claims - one showing health benefits, another showing health risks."
+}

@@ -1,0 +1,1 @@
+{"id": "golden_pareto_001", "suite": "pareto_gate", "added_at": "2025-11-03T22:58:07.961520Z", "approved_by": "john.smith@example.com", "rationale": "Standard case well above threshold", "version": 1, "hypothesis": "Machine learning benefits from data augmentation", "expected_score": 0.75, "expected_persisted": true, "category": "pareto_gate"}

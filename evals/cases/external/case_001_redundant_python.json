@@ -1,0 +1,11 @@
+{
+  "id": "external_001",
+  "query": "What are the key features of Python programming?",
+  "category": "external_compare",
+  "expected_parity": true,
+  "expected_policy": null,
+  "external_scenario": "redundant",
+  "internal_sources": ["internal_python_001"],
+  "external_source": "ext_python_wiki",
+  "rationale": "External source provides redundant information already covered by internal docs. Results should be identical with external OFF vs ON."
+}

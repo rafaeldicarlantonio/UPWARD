@@ -1,0 +1,10 @@
+{
+  "id": "implicate_004",
+  "query": "What's the relationship between pretraining and task-specific fine-tuning?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_bert_004", "doc_finetune_009"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Bridges pretrained models like BERT (doc_004) with fine-tuning methodology (doc_009). The connection is through transfer learning workflow but documents may not explicitly cross-reference. Graph should understand this is a standard ML pipeline."
+}

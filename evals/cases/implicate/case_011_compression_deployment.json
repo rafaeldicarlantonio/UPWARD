@@ -1,0 +1,10 @@
+{
+  "id": "implicate_011",
+  "query": "What quantization techniques make large models deployable?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_efficiency_020", "doc_llm_010"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Connects model compression/quantization (doc_020) with large language models (doc_010). The query implies: LLMs are large → need compression → quantization enables deployment. Legacy may not bridge 'large models' to doc_010 without explicit mention of deployment."
+}

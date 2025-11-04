@@ -1,0 +1,10 @@
+{
+  "id": "implicate_002",
+  "query": "What optimization methods work with backpropagation in neural networks?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_neural_001", "doc_gradient_006"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Requires connecting backpropagation (doc_001) with gradient descent optimization methods (doc_006). These are implicitly related through the training process but may not share direct keyword overlap. Graph should understand the foundational relationship."
+}

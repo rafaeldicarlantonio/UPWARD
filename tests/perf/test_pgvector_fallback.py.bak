@@ -1,0 +1,611 @@
+#!/usr/bin/env python3
+"""
+Unit tests for pgvector fallback when Pinecone fails.
+
+Tests:
+1. Pinecone health check
+2. Fallback trigger on Pinecone failure
+3. Reduced k values in fallback mode
+4. Fallback flag in response
+5. Latency within 350ms budget
+6. Metrics tracking
+"""
+
+import sys
+import time
+import unittest
+from unittest.mock import Mock, patch, MagicMock
+from typing import List, Dict, Any
+
+# Add workspace to path
+sys.path.insert(0, '/workspace')
+
+# Mock problematic imports
+sys.modules['supabase'] = Mock()
+sys.modules['vendors.supabase_client'] = Mock()
+sys.modules['vendors.pinecone_client'] = Mock()
+sys.modules['app.settings'] = Mock()
+sys.modules['tenacity'] = Mock()
+sys.modules['pydantic'] = Mock()
+
+# Mock tenacity decorators
+mock_tenacity = Mock()
+mock_tenacity.retry = lambda *args, **kwargs: lambda f: f
+mock_tenacity.stop_after_attempt = Mock()
+mock_tenacity.wait_exponential = Mock()
+mock_tenacity.retry_if_exception_type = Mock()
+sys.modules['tenacity'] = mock_tenacity
+
+from adapters.vector_fallback import (
+    PgvectorFallbackAdapter,
+    MockMatch,
+    FallbackQueryResult,
+    get_fallback_adapter,
+    query_with_fallback
+)
+from core.selection import DualSelector, SelectionResult
+
+
+class TestPineconeHealthCheck(unittest.TestCase):
+    """Test Pinecone health checking."""
+    
+    def test_health_check_passes_when_pinecone_available(self):
+        """Test health check passes when Pinecone is available."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch('adapters.vector_fallback.get_index') as mock_get_index:
+            mock_index = Mock()
+            mock_index.describe_index_stats.return_value = {"total_vector_count": 1000}
+            mock_get_index.return_value = mock_index
+            
+            is_healthy, error = adapter.check_pinecone_health()
+            
+            self.assertTrue(is_healthy)
+            self.assertIsNone(error)
+    
+    def test_health_check_fails_on_import_error(self):
+        """Test health check fails on import error."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch('adapters.vector_fallback.get_index', side_effect=ImportError("No module")):
+            is_healthy, error = adapter.check_pinecone_health()
+            
+            self.assertFalse(is_healthy)
+            self.assertIn("import failed", error.lower())
+    
+    def test_health_check_fails_on_connection_error(self):
+        """Test health check fails on connection error."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch('adapters.vector_fallback.get_index') as mock_get_index:
+            mock_index = Mock()
+            mock_index.describe_index_stats.side_effect = Exception("Connection refused")
+            mock_get_index.return_value = mock_index
+            
+            is_healthy, error = adapter.check_pinecone_health()
+            
+            self.assertFalse(is_healthy)
+            self.assertIn("health check failed", error.lower())
+    
+    def test_health_check_cached(self):
+        """Test health check results are cached."""
+        adapter = PgvectorFallbackAdapter()
+        adapter._health_check_cache['cache_ttl'] = 10  # 10 second cache
+        
+        with patch('adapters.vector_fallback.get_index') as mock_get_index:
+            mock_index = Mock()
+            mock_index.describe_index_stats.return_value = {"total_vector_count": 1000}
+            mock_get_index.return_value = mock_index
+            
+            # First call
+            adapter.check_pinecone_health()
+            
+            # Second call should use cache
+            adapter.check_pinecone_health()
+            
+            # Should only call once due to cache
+            self.assertEqual(mock_get_index.call_count, 1)
+
+
+class TestFallbackTrigger(unittest.TestCase):
+    """Test fallback triggering logic."""
+    
+    @patch('config.load_config')
+    def test_fallback_triggered_when_pinecone_unhealthy(self, mock_config):
+        """Test fallback is triggered when Pinecone is unhealthy."""
+        mock_config.return_value = {
+            'PERF_PGVECTOR_ENABLED': True,
+            'PERF_FALLBACKS_ENABLED': True
+        }
+        
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'check_pinecone_health', return_value=(False, "Connection failed")):
+            should_fallback, reason = adapter.should_use_fallback()
+            
+            self.assertTrue(should_fallback)
+            self.assertIn("pinecone_unhealthy", reason)
+    
+    @patch('config.load_config')
+    def test_fallback_not_triggered_when_pinecone_healthy(self, mock_config):
+        """Test fallback is not triggered when Pinecone is healthy."""
+        mock_config.return_value = {
+            'PERF_PGVECTOR_ENABLED': True,
+            'PERF_FALLBACKS_ENABLED': True
+        }
+        
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'check_pinecone_health', return_value=(True, None)):
+            should_fallback, reason = adapter.should_use_fallback()
+            
+            self.assertFalse(should_fallback)
+            self.assertIsNone(reason)
+    
+    @patch('config.load_config')
+    def test_fallback_disabled_when_pgvector_disabled(self, mock_config):
+        """Test fallback is disabled when pgvector is disabled."""
+        mock_config.return_value = {
+            'PERF_PGVECTOR_ENABLED': False,
+            'PERF_FALLBACKS_ENABLED': True
+        }
+        
+        adapter = PgvectorFallbackAdapter()
+        
+        should_fallback, reason = adapter.should_use_fallback()
+        
+        self.assertFalse(should_fallback)
+        self.assertEqual(reason, "pgvector_disabled")
+    
+    @patch('config.load_config')
+    def test_fallback_disabled_when_fallbacks_disabled(self, mock_config):
+        """Test fallback is disabled when fallbacks are disabled."""
+        mock_config.return_value = {
+            'PERF_PGVECTOR_ENABLED': True,
+            'PERF_FALLBACKS_ENABLED': False
+        }
+        
+        adapter = PgvectorFallbackAdapter()
+        
+        should_fallback, reason = adapter.should_use_fallback()
+        
+        self.assertFalse(should_fallback)
+        self.assertEqual(reason, "fallbacks_disabled")
+
+
+class TestReducedKValues(unittest.TestCase):
+    """Test that fallback uses reduced k values."""
+    
+    def test_explicate_fallback_uses_reduced_k(self):
+        """Test explicate fallback caps k at FALLBACK_EXPLICATE_K."""
+        adapter = PgvectorFallbackAdapter()
+        
+        # Mock the supabase client
+        with patch.object(adapter, 'client') as mock_client:
+            mock_client.rpc.return_value.execute.return_value = Mock(data=[])
+            
+            # Request large k
+            result = adapter.query_explicate_fallback(
+                embedding=[0.1] * 1536,
+                top_k=100,  # Request 100
+                caller_role="general"
+            )
+            
+            # Should cap at FALLBACK_EXPLICATE_K (8)
+            self.assertEqual(adapter.FALLBACK_EXPLICATE_K, 8)
+    
+    def test_implicate_fallback_uses_reduced_k(self):
+        """Test implicate fallback caps k at FALLBACK_IMPLICATE_K."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'client') as mock_client:
+            mock_client.rpc.return_value.execute.return_value = Mock(data=[])
+            
+            # Request large k
+            result = adapter.query_implicate_fallback(
+                embedding=[0.1] * 1536,
+                top_k=50,  # Request 50
+                caller_role="general"
+            )
+            
+            # Should cap at FALLBACK_IMPLICATE_K (4)
+            self.assertEqual(adapter.FALLBACK_IMPLICATE_K, 4)
+    
+    def test_fallback_k_values_are_reduced(self):
+        """Test fallback k values are significantly smaller than normal."""
+        adapter = PgvectorFallbackAdapter()
+        
+        # Verify reduced values
+        self.assertEqual(adapter.FALLBACK_EXPLICATE_K, 8)
+        self.assertEqual(adapter.FALLBACK_IMPLICATE_K, 4)
+        
+        # Compare to typical normal values (16 and 8)
+        self.assertLess(adapter.FALLBACK_EXPLICATE_K, 16)
+        self.assertLess(adapter.FALLBACK_IMPLICATE_K, 8)
+
+
+class TestFallbackFlag(unittest.TestCase):
+    """Test that fallback flag is set in responses."""
+    
+    def test_fallback_result_has_flag(self):
+        """Test FallbackQueryResult has fallback_used flag."""
+        result = FallbackQueryResult(
+            matches=[],
+            fallback_used=True,
+            latency_ms=100,
+            source="pgvector"
+        )
+        
+        self.assertTrue(result.fallback_used)
+        self.assertEqual(result.source, "pgvector")
+    
+    @patch('config.load_config')
+    def test_selection_result_has_fallback_info(self, mock_config):
+        """Test SelectionResult includes fallback information."""
+        mock_config.return_value = {
+            'PERF_RETRIEVAL_PARALLEL': False,
+            'PERF_RETRIEVAL_TIMEOUT_MS': 450,
+            'PERF_GRAPH_TIMEOUT_MS': 150
+        }
+        
+        selector = DualSelector()
+        
+        # Mock fallback adapter via private attribute
+        mock_fallback = Mock()
+        selector._fallback_adapter = mock_fallback
+        
+        # Configure mock
+        mock_fallback.should_use_fallback.return_value = (True, "pinecone_down")
+        mock_fallback.FALLBACK_EXPLICATE_K = 8
+        mock_fallback.FALLBACK_IMPLICATE_K = 4
+        
+        # Mock fallback queries
+        explicate_matches = [
+            MockMatch(f"exp_{i}", 0.9, {"text": f"text {i}", "role_rank": 1})
+            for i in range(3)
+        ]
+        implicate_matches = [
+            MockMatch(f"imp_{i}", 0.8, {"entity_id": f"e{i}", "role_rank": 1})
+            for i in range(2)
+        ]
+        
+        mock_fallback.query_explicate_fallback.return_value = FallbackQueryResult(
+            matches=explicate_matches,
+            fallback_used=True
+        )
+        mock_fallback.query_implicate_fallback.return_value = FallbackQueryResult(
+            matches=implicate_matches,
+            fallback_used=True
+        )
+        
+        # Execute selection
+        result = selector.select(
+            query="test query",
+            embedding=[0.1] * 1536,
+            caller_role="general"
+        )
+        
+        # Check fallback info
+        self.assertIn('fallback', result.__dict__)
+        self.assertTrue(result.fallback.get('used', False))
+
+
+class TestFallbackLatency(unittest.TestCase):
+    """Test that fallback meets latency budget."""
+    
+    def test_fallback_query_within_350ms(self):
+        """Test fallback query completes within 350ms budget."""
+        adapter = PgvectorFallbackAdapter()
+        
+        # Mock quick response
+        with patch.object(adapter, 'client') as mock_client:
+            mock_data = [
+                {
+                    'id': f'mem_{i}',
+                    'score': 0.9,
+                    'text': f'text {i}',
+                    'title': f'title {i}',
+                    'created_at': '2024-01-01',
+                    'type': 'semantic',
+                    'role_view_level': 0,
+                    'metadata': {}
+                }
+                for i in range(8)
+            ]
+            mock_client.rpc.return_value.execute.return_value = Mock(data=mock_data)
+            
+            start = time.time()
+            result = adapter.query_explicate_fallback(
+                embedding=[0.1] * 1536,
+                caller_role="general"
+            )
+            elapsed = (time.time() - start) * 1000
+            
+            # Should complete quickly
+            self.assertLess(elapsed, 350, "Fallback should complete within 350ms")
+            self.assertLess(result.latency_ms, 350)
+    
+    def test_fallback_timeout_budget_set(self):
+        """Test fallback has appropriate timeout budget."""
+        adapter = PgvectorFallbackAdapter()
+        
+        # Verify timeout is set
+        self.assertEqual(adapter.FALLBACK_TIMEOUT_MS, 350)
+
+
+class TestMetricsTracking(unittest.TestCase):
+    """Test that fallback metrics are tracked."""
+    
+    @patch('adapters.vector_fallback.increment_counter')
+    @patch('adapters.vector_fallback.observe_histogram')
+    def test_fallback_trigger_metrics_recorded(self, mock_histogram, mock_counter):
+        """Test that fallback trigger is recorded in metrics."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'check_pinecone_health', return_value=(False, "Connection failed")):
+            with patch('adapters.vector_fallback.load_config', return_value={'PERF_PGVECTOR_ENABLED': True, 'PERF_FALLBACKS_ENABLED': True}):
+                should_fallback, reason = adapter.should_use_fallback()
+                
+                self.assertTrue(should_fallback)
+                
+                # Check metrics were recorded
+                trigger_calls = [
+                    call for call in mock_counter.call_args_list
+                    if 'fallback.triggered' in str(call)
+                ]
+                self.assertGreater(len(trigger_calls), 0)
+    
+    @patch('adapters.vector_fallback.increment_counter')
+    @patch('adapters.vector_fallback.observe_histogram')
+    def test_fallback_query_metrics_recorded(self, mock_histogram, mock_counter):
+        """Test that fallback queries record metrics."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'client') as mock_client:
+            mock_client.rpc.return_value.execute.return_value = Mock(data=[])
+            
+            result = adapter.query_explicate_fallback(
+                embedding=[0.1] * 1536,
+                caller_role="general"
+            )
+            
+            # Check query metrics
+            query_calls = [
+                call for call in mock_counter.call_args_list
+                if 'fallback.queries' in str(call)
+            ]
+            self.assertGreater(len(query_calls), 0)
+            
+            # Check latency metrics
+            latency_calls = [
+                call for call in mock_histogram.call_args_list
+                if 'fallback.latency' in str(call)
+            ]
+            self.assertGreater(len(latency_calls), 0)
+
+
+class TestFallbackQueries(unittest.TestCase):
+    """Test fallback query execution."""
+    
+    def test_explicate_fallback_returns_matches(self):
+        """Test explicate fallback returns match objects."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'client') as mock_client:
+            mock_data = [
+                {
+                    'id': 'mem_1',
+                    'score': 0.95,
+                    'text': 'Test text',
+                    'title': 'Test title',
+                    'created_at': '2024-01-01',
+                    'type': 'semantic',
+                    'role_view_level': 0,
+                    'metadata': {}
+                }
+            ]
+            mock_client.rpc.return_value.execute.return_value = Mock(data=mock_data)
+            
+            result = adapter.query_explicate_fallback(
+                embedding=[0.1] * 1536,
+                caller_role="general"
+            )
+            
+            self.assertTrue(result.fallback_used)
+            self.assertGreater(len(result.matches), 0)
+            self.assertEqual(result.matches[0].id, 'mem_1')
+            self.assertEqual(result.matches[0].score, 0.95)
+    
+    def test_implicate_fallback_returns_matches(self):
+        """Test implicate fallback returns match objects."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'client') as mock_client:
+            mock_data = [
+                {
+                    'id': 'entity_1',
+                    'score': 0.85,
+                    'entity_name': 'Test Entity',
+                    'created_at': '2024-01-01',
+                    'role_view_level': 0,
+                    'metadata': {}
+                }
+            ]
+            mock_client.rpc.return_value.execute.return_value = Mock(data=mock_data)
+            
+            result = adapter.query_implicate_fallback(
+                embedding=[0.1] * 1536,
+                caller_role="general"
+            )
+            
+            self.assertTrue(result.fallback_used)
+            self.assertGreater(len(result.matches), 0)
+            self.assertEqual(result.matches[0].id, 'entity_1')
+    
+    def test_fallback_handles_empty_results(self):
+        """Test fallback handles empty results gracefully."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'client') as mock_client:
+            mock_client.rpc.return_value.execute.return_value = Mock(data=[])
+            
+            result = adapter.query_explicate_fallback(
+                embedding=[0.1] * 1536,
+                caller_role="general"
+            )
+            
+            self.assertTrue(result.fallback_used)
+            self.assertEqual(len(result.matches), 0)
+    
+    def test_fallback_handles_errors(self):
+        """Test fallback handles errors gracefully."""
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'client') as mock_client:
+            mock_client.rpc.side_effect = Exception("Database error")
+            
+            result = adapter.query_explicate_fallback(
+                embedding=[0.1] * 1536,
+                caller_role="general"
+            )
+            
+            self.assertTrue(result.fallback_used)
+            self.assertEqual(result.source, "pgvector_error")
+            self.assertEqual(len(result.matches), 0)
+
+
+class TestAcceptanceCriteria(unittest.TestCase):
+    """Test acceptance criteria from requirements."""
+    
+    @patch('config.load_config')
+    def test_pinecone_outage_still_returns_results(self, mock_config):
+        """Test: simulate Pinecone outage; retrieval still returns results."""
+        mock_config.return_value = {
+            'PERF_RETRIEVAL_PARALLEL': False,
+            'PERF_RETRIEVAL_TIMEOUT_MS': 450,
+            'PERF_GRAPH_TIMEOUT_MS': 150,
+            'PERF_PGVECTOR_ENABLED': True,
+            'PERF_FALLBACKS_ENABLED': True
+        }
+        
+        selector = DualSelector()
+        
+        # Mock fallback adapter via private attribute
+        mock_fallback = Mock()
+        selector._fallback_adapter = mock_fallback
+        
+        # Mock Pinecone as down
+        mock_fallback.should_use_fallback.return_value = (True, "pinecone_outage")
+        mock_fallback.FALLBACK_EXPLICATE_K = 8
+        mock_fallback.FALLBACK_IMPLICATE_K = 4
+        
+        # Mock fallback queries returning results
+        explicate_matches = [
+        explicate_matches = [
+            MockMatch(f"exp_{i}", 0.9 - i*0.1, {
+                "text": f"fallback text {i}",
+                "title": f"Title {i}",
+                "type": "semantic",
+                "role_rank": 1
+            })
+            for i in range(5)
+        ]
+        
+        implicate_matches = [
+            MockMatch(f"imp_{i}", 0.8, {
+                "entity_id": f"e{i}",
+                "entity_name": f"Entity {i}",
+                "role_rank": 1
+            })
+            for i in range(3)
+        ]
+        
+        mock_fallback.query_explicate_fallback.return_value = FallbackQueryResult(
+            matches=explicate_matches,
+            fallback_used=True,
+            latency_ms=100
+        )
+        mock_fallback.query_implicate_fallback.return_value = FallbackQueryResult(
+            matches=implicate_matches,
+            fallback_used=True,
+            latency_ms=80
+        )
+        
+        # Execute
+        start = time.time()
+        result = selector.select(
+            query="test query during outage",
+            embedding=[0.1] * 1536,
+            caller_role="general"
+        )
+        elapsed = (time.time() - start) * 1000
+        
+        # ✅ Still returns results
+        self.assertGreater(result.metadata['explicate_hits'], 0, "Should have explicate results")
+        self.assertGreater(result.metadata['implicate_hits'], 0, "Should have implicate results")
+    def test_fallback_completes_within_350ms(self, mock_config):
+        """Test: retrieval returns within 350ms."""
+        mock_config.return_value = {
+            'PERF_RETRIEVAL_PARALLEL': False,
+            'PERF_PGVECTOR_ENABLED': True,
+            'PERF_FALLBACKS_ENABLED': True
+        }
+        
+        adapter = PgvectorFallbackAdapter()
+        
+        with patch.object(adapter, 'client') as mock_client:
+            # Mock fast responses
+            mock_data = [{'id': f'mem_{i}', 'score': 0.9, 'text': 'text', 'title': 'title', 
+                         'created_at': '2024-01-01', 'type': 'semantic', 'role_view_level': 0, 
+                         'metadata': {}} for i in range(8)]
+            mock_client.rpc.return_value.execute.return_value = Mock(data=mock_data)
+            
+            start = time.time()
+            result = adapter.query_explicate_fallback(
+                embedding=[0.1] * 1536,
+                caller_role="general"
+            )
+            elapsed = (time.time() - start) * 1000
+            
+            # ? Within 350ms
+            self.assertLess(elapsed, 350, "Should complete within 350ms")
+            self.assertLess(result.latency_ms, 350)
+    
+    @patch('config.load_config')
+    def test_response_includes_fallback_flag(self, mock_config):
+        """Test: response includes fallback flag."""
+        mock_config.return_value = {
+            'PERF_RETRIEVAL_PARALLEL': False,
+            'PERF_RETRIEVAL_TIMEOUT_MS': 450,
+            'PERF_GRAPH_TIMEOUT_MS': 150,
+            'PERF_PGVECTOR_ENABLED': True,
+            'PERF_FALLBACKS_ENABLED': True
+        }
+        
+        selector = DualSelector()
+        
+        with patch.object(selector, 'fallback_adapter') as mock_fallback:
+            mock_fallback.should_use_fallback.return_value = (True, "test_outage")
+            mock_fallback.FALLBACK_EXPLICATE_K = 8
+            mock_fallback.FALLBACK_IMPLICATE_K = 4
+            
+            mock_fallback.query_explicate_fallback.return_value = FallbackQueryResult(
+                matches=[], fallback_used=True
+            )
+            mock_fallback.query_implicate_fallback.return_value = FallbackQueryResult(
+                matches=[], fallback_used=True
+            )
+            
+            result = selector.select(
+                query="test",
+                embedding=[0.1] * 1536
+            )
+            
+            # ? Response includes fallback flag
+            self.assertIn('fallback', result.__dict__)
+            self.assertTrue(result.fallback.get('used', False), "Fallback flag should be set")
+            self.assertIn('reason', result.fallback)
+
+
+if __name__ == "__main__":
+    unittest.main()

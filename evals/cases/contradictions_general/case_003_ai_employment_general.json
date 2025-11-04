@@ -1,0 +1,17 @@
+{
+  "id": "contradiction_003_general",
+  "query": "How will AI impact employment rates?",
+  "category": "contradictions",
+  "role": "general",
+  "expected_contradictions": [
+    {
+      "subject": "ai_employment",
+      "claim_a_source": "doc_ai_jobs_positive_003",
+      "claim_b_source": "doc_ai_jobs_negative_004"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "redaction_expected": true,
+  "rationale": "General role variant. Contradiction detection for AI employment impact should work with redacted proprietary analysis."
+}

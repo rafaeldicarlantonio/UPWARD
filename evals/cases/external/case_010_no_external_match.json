@@ -1,0 +1,11 @@
+{
+  "id": "external_010",
+  "query": "How does Git version control work?",
+  "category": "external_compare",
+  "expected_parity": true,
+  "expected_policy": null,
+  "external_scenario": "no_match",
+  "internal_sources": ["internal_git_006"],
+  "external_source": null,
+  "rationale": "No relevant external source found. Perfect parity expected since external returns nothing."
+}

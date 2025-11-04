@@ -1,0 +1,10 @@
+{
+  "id": "implicate_005",
+  "query": "How does dropout prevent overfitting in deep neural networks?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_regularization_007", "doc_deep_002"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Connects dropout regularization (doc_007) with deep learning architectures (doc_002). While doc_007 mentions dropout, the connection to 'deep neural networks' requires bridging to doc_002. Legacy keyword match may miss this implicit relationship."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "contradiction_002",
+  "query": "How effective are COVID-19 vaccines?",
+  "category": "contradictions",
+  "expected_contradictions": [
+    {
+      "subject": "vaccine_efficacy",
+      "claim_a_source": "doc_vaccine_effective_003",
+      "claim_b_source": "doc_vaccine_ineffective_004"
+    }
+  ],
+  "expected_badge": true,
+  "max_packing_latency_ms": 550,
+  "rationale": "Contradictory efficacy data - one showing 92% effectiveness, another showing only 15% effectiveness."
+}

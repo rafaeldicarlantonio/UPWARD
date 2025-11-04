@@ -49,7 +49,7 @@ suites:
     enabled: true
     pipeline: "new"
     testsets:
-      - "testsets/performance.json"
+      - "evals/testsets/performance.json"
     constraints:
       max_latency_ms: 500
       min_pass_rate: 1.0
@@ -59,7 +59,7 @@ suites:
     enabled: true
     pipeline: "new"
     testsets:
-      - "testsets/implicate_lift.json"
+      - "evals/testsets/implicate_lift.json"
     constraints:
       max_latency_ms: 1000
       min_pass_rate: 0.90
@@ -70,7 +70,7 @@ suites:
     enabled: true
     pipeline: "new"
     testsets:
-      - "testsets/contradictions.json"
+      - "evals/testsets/contradictions.json"
     constraints:
       max_latency_ms: 1000
       min_pass_rate: 0.85
@@ -81,7 +81,7 @@ suites:
     enabled: true
     pipeline: "new"
     testsets:
-      - "testsets/redo/ordering.json"
+      - "evals/testsets/redo/ordering.json"
     constraints:
       max_latency_ms: 800
       min_pass_rate: 0.90
@@ -94,7 +94,7 @@ suites:
     deterministic: true
     seed: 42
     testsets:
-      - "testsets/redo/deterministic.json"
+      - "evals/testsets/redo/deterministic.json"
     constraints:
       max_latency_ms: 500
       min_pass_rate: 1.0
@@ -105,12 +105,12 @@ suites:
     enabled: true
     pipeline: "new"
     testsets:
-      - "testsets/performance.json"
-      - "testsets/implicate_lift.json"
-      - "testsets/contradictions.json"
-      - "testsets/redo/ordering.json"
-      - "testsets/redo/deterministic.json"
-      - "testsets/redo/contradiction_surfacing.json"
+      - "evals/testsets/performance.json"
+      - "evals/testsets/implicate_lift.json"
+      - "evals/testsets/contradictions.json"
+      - "evals/testsets/redo/ordering.json"
+      - "evals/testsets/redo/deterministic.json"
+      - "evals/testsets/redo/contradiction_surfacing.json"
     constraints:
       max_latency_ms: 1000
       min_pass_rate: 0.85
@@ -120,7 +120,7 @@ suites:
     enabled: true
     pipeline: "legacy"
     testsets:
-      - "testsets/performance.json"
+      - "evals/testsets/performance.json"
     constraints:
       max_latency_ms: 1000
       min_pass_rate: 0.80
@@ -132,7 +132,7 @@ suites:
       - "legacy"
       - "new"
     testsets:
-      - "testsets/performance.json"
+      - "evals/testsets/performance.json"
     constraints:
       max_latency_ms: 1000
 

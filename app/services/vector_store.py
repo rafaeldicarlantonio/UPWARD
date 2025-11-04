@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -105,6 +106,83 @@ class VectorStore:
     @_retryable.__func__()
     def _upsert(self, index, id: str, vector: List[float], metadata: Dict[str, Any], namespace: Optional[str]):
         return index.upsert(vectors=[{"id": id, "values": vector, "metadata": metadata}], namespace=namespace)
+
+    # ---- async queries ----
+    async def query_explicit_async(
+        self, 
+        embedding: List[float], 
+        top_k: int = 12, 
+        filter: Optional[Dict[str, Any]] = None, 
+        caller_role: Optional[str] = None,
+        timeout: Optional[float] = None
+    ):
+        """Async version of query_explicit with optional timeout.
+        
+        Args:
+            embedding: Query vector
+            top_k: Number of results
+            filter: Optional metadata filter
+            caller_role: Caller role for RBAC
+            timeout: Optional timeout in seconds
+            
+        Returns:
+            Query results
+            
+        Raises:
+            asyncio.TimeoutError: If query exceeds timeout
+        """
+        idx = self._get_explicate()
+        f = self._role_filter(filter, caller_role)
+        
+        # Run sync query in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        query_coro = loop.run_in_executor(
+            None,
+            lambda: self._query(idx, embedding, top_k, f, namespace=None)
+        )
+        
+        if timeout:
+            return await asyncio.wait_for(query_coro, timeout=timeout)
+        else:
+            return await query_coro
+
+    async def query_implicate_async(
+        self, 
+        embedding: List[float], 
+        top_k: int = 12, 
+        filter: Optional[Dict[str, Any]] = None, 
+        caller_role: Optional[str] = None,
+        timeout: Optional[float] = None
+    ):
+        """Async version of query_implicate with optional timeout.
+        
+        Args:
+            embedding: Query vector
+            top_k: Number of results
+            filter: Optional metadata filter
+            caller_role: Caller role for RBAC
+            timeout: Optional timeout in seconds
+            
+        Returns:
+            Query results
+            
+        Raises:
+            asyncio.TimeoutError: If query exceeds timeout
+        """
+        idx = self._get_implicate()
+        f = self._role_filter(filter, caller_role)
+        
+        # Run sync query in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        query_coro = loop.run_in_executor(
+            None,
+            lambda: self._query(idx, embedding, top_k, f, namespace=None)
+        )
+        
+        if timeout:
+            return await asyncio.wait_for(query_coro, timeout=timeout)
+        else:
+            return await query_coro
 
 
 # Smoke test (manual)

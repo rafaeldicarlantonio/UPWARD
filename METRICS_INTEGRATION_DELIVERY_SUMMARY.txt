@@ -1,0 +1,381 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                  METRICS INTEGRATION FOR EVALS                               ║
+║                      DELIVERY SUMMARY                                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PROJECT: Instrument evaluation harness to emit metrics and print compact dashboard
+ACCEPTANCE: Metrics increment during test runs; summary line prints quality scores;
+            tests cover increments and formatting
+
+════════════════════════════════════════════════════════════════════════════════
+DELIVERABLES
+════════════════════════════════════════════════════════════════════════════════
+
+✅ 1. Extended core/metrics.py with EvalMetrics class (103 lines added)
+
+Features:
+  • record_suite_run(): Records suite-level metrics
+  • record_suite_failure(): Records failures with type
+  • record_case_result(): Records individual test case results
+  • record_latency(): Records operation latencies
+  • record_trace_replay(): Records trace replay success/failure
+  • set_quality_score(): Sets quality score gauge
+  • get_suite_quality_score(): Retrieves quality score
+
+Metrics Captured:
+  • Counters:
+    - eval.suite.runs (labeled: suite, success)
+    - eval.suite.failures (labeled: suite, type)
+    - eval.cases.total (labeled: suite, category)
+    - eval.cases.passed (labeled: suite, category)
+    - eval.cases.failed (labeled: suite, category)
+    - eval.trace.replay_success/failure (labeled: success, trace_id)
+  
+  • Histograms:
+    - eval.latency.retrieval_ms (labeled: operation, suite, category)
+    - eval.latency.packing_ms (labeled: operation, suite, category)
+    - eval.latency.compare_ms (labeled: operation, suite, category)
+    - eval.latency.scoring_ms (labeled: operation, suite, category)
+  
+  • Gauges:
+    - eval.suite.quality_score (labeled: suite)
+
+✅ 2. Instrumented evals/run.py (64 lines added/modified)
+
+Enhancements:
+  • Added suite_name parameter to EvalRunner.__init__
+  • Created print_dashboard_line() method
+  • Created _record_case_metrics() method
+  • Instrumented run_single_case() to record metrics
+  • Instrumented run_testset() to record suite metrics
+  • Dashboard automatically prints after test suite completes
+
+Dashboard Format:
+  [SUITE_NAME] Quality: 95.0% | Pass: 19/20 | Latency: p50=150ms p95=450ms | ✅
+
+Status Indicators:
+  • ✅ (or ?) - Quality ≥ 90%
+  • ⚠️ (or ??) - Quality 70-90%
+  • ❌ (or ?) - Quality < 70%
+
+✅ 3. Comprehensive Unit Tests (tests/evals/test_metrics_integration.py - 504 lines)
+
+Test Coverage:
+  • 25 tests across 7 test classes
+  • 100% pass rate
+
+Test Classes:
+  1. TestEvalMetricsBasic (8 tests)
+     - record_suite_run
+     - record_suite_failure
+     - record_case_result (passed/failed)
+     - record_latency
+     - quality_score
+     - trace_replay (success/failure)
+  
+  2. TestEvalRunnerMetricsIntegration (2 tests)
+     - runner_records_case_metrics
+     - run_single_case_records_metrics
+  
+  3. TestDashboardFormatting (3 tests)
+     - dashboard_line_format
+     - dashboard_line_warning
+     - dashboard_line_failure
+  
+  4. TestMetricsIncrement (3 tests)
+     - multiple_cases_increment
+     - mixed_results_increment
+     - latency_histogram_accumulates
+  
+  5. TestQualityScoreCalculation (2 tests)
+     - quality_score_perfect
+     - quality_score_partial
+  
+  6. TestLatencyMetrics (4 tests)
+     - retrieval_latency
+     - packing_latency
+     - compare_latency
+     - scoring_latency
+  
+  7. TestAcceptanceCriteria (3 tests)
+     - metrics_increment_during_runs
+     - summary_line_prints_quality_scores
+     - formatting_is_compact
+
+════════════════════════════════════════════════════════════════════════════════
+ACCEPTANCE CRITERIA VALIDATION
+════════════════════════════════════════════════════════════════════════════════
+
+✅ Metrics Increment During Test Runs
+   IMPLEMENTATION:
+     • _record_case_metrics() called after each test case
+     • Suite metrics recorded in run_testset()
+     • All counters and histograms increment properly
+   
+   TEST:
+     • test_metrics_increment_during_runs
+     • test_multiple_cases_increment
+     • test_mixed_results_increment
+   
+   VERIFICATION:
+     $ python3 -m unittest tests.evals.test_metrics_integration
+     Ran 25 tests - OK ✅
+
+✅ Summary Line Prints Quality Scores
+   IMPLEMENTATION:
+     • print_dashboard_line() method
+     • Called automatically after run_testset()
+     • Format: [SUITE] Quality: X% | Pass: N/M | Latency: pXX=Yms | status
+     • Quality score calculated as passed/total * 100
+   
+   TEST:
+     • test_summary_line_prints_quality_scores
+     • test_dashboard_line_format
+   
+   VERIFICATION:
+     Dashboard output shows quality score prominently
+     Example: [TEST_SUITE] Quality: 95.0% | Pass: 19/20 | ...
+
+✅ Tests Cover Increments and Formatting
+   IMPLEMENTATION:
+     • 25 comprehensive unit tests
+     • Tests for all metric types (counters, histograms, gauges)
+     • Tests for dashboard formatting
+     • Tests for acceptance criteria
+   
+   TEST BREAKDOWN:
+     • Metric increments: 8 tests
+     • Dashboard formatting: 3 tests
+     • Integration: 2 tests
+     • Quality scores: 2 tests
+     • Latency metrics: 4 tests
+     • Acceptance criteria: 3 tests
+     • Other: 3 tests
+
+════════════════════════════════════════════════════════════════════════════════
+KEY TECHNICAL FEATURES
+════════════════════════════════════════════════════════════════════════════════
+
+1. THREAD-SAFE METRICS COLLECTION
+   • Leverages existing MetricsCollector infrastructure
+   • RLock ensures thread safety
+   • Supports labeled metrics
+
+2. COMPREHENSIVE METRIC TYPES
+   • Counters: For events (runs, failures, cases)
+   • Histograms: For distributions (latencies)
+   • Gauges: For current values (quality scores)
+
+3. COMPACT DASHBOARD
+   • Single-line summary per suite
+   • Visual status indicators
+   • Key metrics: quality, pass rate, latency percentiles
+
+4. AUTOMATIC INSTRUMENTATION
+   • Metrics recorded automatically during test runs
+   • No manual intervention required
+   • Dashboard prints after suite completes
+
+5. FLEXIBLE LABELING
+   • Metrics labeled by suite, category, operation
+   • Enables per-suite, per-category analysis
+   • Supports multi-dimensional queries
+
+════════════════════════════════════════════════════════════════════════════════
+METRICS DETAILS
+════════════════════════════════════════════════════════════════════════════════
+
+Counter Metrics:
+  eval.suite.runs
+    Labels: suite, success
+    Purpose: Track suite executions and outcomes
+    Example: eval.suite.runs{suite="implicate_lift",success="true"} = 5
+  
+  eval.suite.failures
+    Labels: suite, type
+    Purpose: Track failure types (functional, latency, constraint)
+    Example: eval.suite.failures{suite="pareto_gate",type="functional"} = 1
+  
+  eval.cases.total
+    Labels: suite, category
+    Purpose: Total test cases run
+    Example: eval.cases.total{suite="contradictions",category="contradiction"} = 20
+  
+  eval.cases.passed
+    Labels: suite, category
+    Purpose: Successful test cases
+    Example: eval.cases.passed{suite="implicate_lift",category="implicate_lift"} = 18
+  
+  eval.cases.failed
+    Labels: suite, category
+    Purpose: Failed test cases
+    Example: eval.cases.failed{suite="external_compare",category="external_compare"} = 2
+  
+  eval.trace.replay_success / eval.trace.replay_failure
+    Labels: success, trace_id
+    Purpose: Track trace replay outcomes
+    Example: eval.trace.replay_success{success="true",trace_id="trace_001"} = 1
+
+Histogram Metrics:
+  eval.latency.{operation}_ms
+    Operations: retrieval, packing, compare, scoring
+    Labels: operation, suite, category
+    Purpose: Track latency distributions
+    Example: eval.latency.retrieval_ms{operation="retrieval",suite="implicate_lift",category="implicate_lift"}
+    Stats: count, sum, avg, buckets (p50, p90, p95, p99)
+
+Gauge Metrics:
+  eval.suite.quality_score
+    Labels: suite
+    Purpose: Current quality score (success rate)
+    Example: eval.suite.quality_score{suite="implicate_lift"} = 0.95
+    Range: 0.0 - 1.0
+
+════════════════════════════════════════════════════════════════════════════════
+USAGE EXAMPLES
+════════════════════════════════════════════════════════════════════════════════
+
+Basic Usage (automatic):
+  # Metrics are automatically recorded during test runs
+  runner = EvalRunner(suite_name="my_suite")
+  results = runner.run_testset("evals/testsets/my_suite.jsonl")
+  
+  # Dashboard is automatically printed:
+  # [MY_SUITE] Quality: 95.0% | Pass: 19/20 | Latency: p50=150ms p95=450ms | ✅
+
+Manual Metrics Recording:
+  from core.metrics import EvalMetrics
+  
+  # Record suite run
+  EvalMetrics.record_suite_run("my_suite", True, 5000.0, 20)
+  
+  # Record case result
+  EvalMetrics.record_case_result("my_suite", "case_001", True, "implicate_lift")
+  
+  # Record latency
+  EvalMetrics.record_latency("retrieval", 150.0, "my_suite", "implicate_lift")
+  
+  # Set quality score
+  EvalMetrics.set_quality_score("my_suite", 0.95)
+
+Querying Metrics:
+  from core.metrics import get_counter, get_gauge, get_histogram_stats
+  
+  # Get counter value
+  runs = get_counter("eval.suite.runs", {"suite": "my_suite", "success": "true"})
+  
+  # Get quality score
+  quality = EvalMetrics.get_suite_quality_score("my_suite")
+  
+  # Get latency stats
+  stats = get_histogram_stats("eval.latency.retrieval_ms", 
+                              {"operation": "retrieval", "suite": "my_suite"})
+  print(f"Avg: {stats['avg']}ms, P95: {stats['buckets'][500]}ms")
+
+Custom Dashboard:
+  runner = EvalRunner(suite_name="my_suite")
+  summary = runner.generate_summary()
+  runner.print_dashboard_line(summary, "my_suite")
+
+════════════════════════════════════════════════════════════════════════════════
+DASHBOARD OUTPUT EXAMPLES
+════════════════════════════════════════════════════════════════════════════════
+
+Perfect Run (≥90%):
+  ================================================================================
+  [IMPLICATE_LIFT] Quality: 95.0% | Pass: 19/20 | Latency: p50=150ms p95=450ms | ✅
+  ================================================================================
+
+Warning (70-90%):
+  ================================================================================
+  [CONTRADICTIONS] Quality: 80.0% | Pass: 16/20 | Latency: p50=200ms p95=550ms | ⚠️
+  ================================================================================
+
+Failure (<70%):
+  ================================================================================
+  [EXTERNAL_COMPARE] Quality: 50.0% | Pass: 10/20 | Latency: p50=300ms p95=800ms | ❌
+  ================================================================================
+
+════════════════════════════════════════════════════════════════════════════════
+TEST RESULTS
+════════════════════════════════════════════════════════════════════════════════
+
+Unit Tests:
+  $ python3 -m unittest tests.evals.test_metrics_integration -v
+  
+  Ran 25 tests in 0.035s
+  OK ✅
+
+Demo Script:
+  $ python3 test_metrics_demo.py
+  
+  METRICS INSTRUMENTATION DEMO
+  1. Recording suite run...
+  2. Recording case results...
+  3. Recording latencies...
+  4. Setting quality score...
+  5. Printing dashboard...
+  [DEMO_SUITE] Quality: 90.0% | Pass: 18/20 | Latency: p50=200ms p95=450ms | ✅
+  ✅ Demo complete!
+
+════════════════════════════════════════════════════════════════════════════════
+FILES CREATED/MODIFIED
+════════════════════════════════════════════════════════════════════════════════
+
+Modified:
+  core/metrics.py                                # Added EvalMetrics class (103 lines)
+  evals/run.py                                   # Instrumented with metrics (64 lines)
+
+Created:
+  tests/evals/test_metrics_integration.py        # Unit tests (504 lines, 25 tests)
+  test_metrics_demo.py                           # Demo script
+  METRICS_INTEGRATION_DELIVERY_SUMMARY.txt       # This file
+
+════════════════════════════════════════════════════════════════════════════════
+INTEGRATION POINTS
+════════════════════════════════════════════════════════════════════════════════
+
+Existing Infrastructure:
+  • Leverages core/metrics.py MetricsCollector
+  • Integrates with evals/run.py EvalRunner
+  • Compatible with existing latency gates
+  • Works with all eval suites (implicate_lift, contradictions, external_compare, pareto_gate)
+
+Future Extensions:
+  • Export metrics to Prometheus
+  • Send metrics to Datadog/New Relic
+  • Create Grafana dashboards
+  • Alert on quality score degradation
+  • Track trends over time
+
+════════════════════════════════════════════════════════════════════════════════
+BEST PRACTICES
+════════════════════════════════════════════════════════════════════════════════
+
+DO:
+  ✅ Use suite_name parameter in EvalRunner for consistent metrics
+  ✅ Let metrics record automatically during test runs
+  ✅ Review dashboard output after test suites
+  ✅ Monitor quality scores over time
+  ✅ Use labeled metrics for multi-dimensional analysis
+
+DON'T:
+  ❌ Manually record metrics unless necessary
+  ❌ Modify metric labels (breaks aggregation)
+  ❌ Ignore dashboard warnings/failures
+  ❌ Reset metrics in production
+  ❌ Use non-descriptive suite names
+
+════════════════════════════════════════════════════════════════════════════════
+STATUS
+════════════════════════════════════════════════════════════════════════════════
+
+✅ IMPLEMENTATION: COMPLETE
+✅ TESTS: ALL PASSING (25/25)
+✅ DOCUMENTATION: COMPLETE
+✅ ACCEPTANCE CRITERIA: ALL MET
+✅ DEMO: VERIFIED
+
+Ready for production use!
+
+════════════════════════════════════════════════════════════════════════════════

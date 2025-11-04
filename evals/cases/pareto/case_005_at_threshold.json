@@ -1,0 +1,19 @@
+{
+  "id": "pareto_005",
+  "proposal": {
+    "hypothesis": "SQL joins enable complex data relationships in relational databases.",
+    "signals": {
+      "novelty": 0.65,
+      "evidence_strength": 0.68,
+      "coherence": 0.63,
+      "specificity": 0.60
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.65,
+  "expected_persisted": true,
+  "expected_status_code": 201,
+  "max_scoring_latency_ms": 200,
+  "scenario": "at_threshold",
+  "rationale": "Score 0.65 exactly at threshold. Should persist (>= threshold)."
+}

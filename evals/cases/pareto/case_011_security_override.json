@@ -1,0 +1,25 @@
+{
+  "id": "pareto_011",
+  "proposal": {
+    "hypothesis": "Critical bug: Authentication bypass in legacy API endpoint.",
+    "signals": {
+      "novelty": 0.38,
+      "evidence_strength": 0.42,
+      "coherence": 0.40,
+      "specificity": 0.35
+    },
+    "override": {
+      "enabled": true,
+      "reason": "security_critical",
+      "source": "security_team"
+    }
+  },
+  "category": "pareto_gate",
+  "expected_score": 0.39,
+  "expected_persisted": true,
+  "expected_status_code": 201,
+  "expected_override_logged": true,
+  "max_scoring_latency_ms": 200,
+  "scenario": "security_override",
+  "rationale": "Score 0.39 far below threshold BUT security override forces persistence. Override must be logged."
+}

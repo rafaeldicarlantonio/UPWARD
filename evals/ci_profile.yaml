@@ -1,0 +1,231 @@
+# CI Profile Configuration for Evaluation Suites
+# 
+# Defines test profiles for different CI scenarios:
+# - PR: Reduced test set for fast feedback on pull requests
+# - Nightly: Full test suites for comprehensive validation
+# - Full: All tests including experimental and edge cases
+
+profiles:
+  # PR Profile: Fast, focused tests
+  # Run time target: < 5 minutes per suite
+  pr:
+    description: "Reduced test set for pull request validation"
+    test_selection: "subset"
+    max_cases_per_suite: 10
+    skip_flaky: true
+    timeout_minutes: 5
+    latency_slack_percent: 15  # Allow 15% slack on latency budgets
+    constraints:
+      min_pass_rate: 0.90  # 90% pass rate required
+      max_latency_ms: 600  # Slightly relaxed for CI environment
+      fail_on_violation: true
+  
+  # Nightly Profile: Comprehensive testing
+  # Run time target: < 30 minutes total
+  nightly:
+    description: "Full test suites for nightly validation"
+    test_selection: "full"
+    max_cases_per_suite: null  # No limit
+    skip_flaky: false
+    timeout_minutes: 30
+    latency_slack_percent: 10  # Tighter than PR
+    constraints:
+      min_pass_rate: 0.95  # 95% pass rate required
+      max_latency_ms: 500  # Standard latency budget
+      fail_on_violation: true
+  
+  # Full Profile: All tests including experimental
+  full:
+    description: "Complete test coverage including experimental"
+    test_selection: "all"
+    max_cases_per_suite: null
+    skip_flaky: false
+    timeout_minutes: 60
+    latency_slack_percent: 5  # Very tight
+    constraints:
+      min_pass_rate: 0.98  # 98% pass rate required
+      max_latency_ms: 500
+      fail_on_violation: true
+
+# Suite-specific configuration
+suites:
+  implicate_lift:
+    description: "Implicate bridging retrieval tests"
+    testset: "evals/suites/implicate_lift.jsonl"
+    category: "retrieval"
+    
+    # PR profile: Run representative subset
+    pr_subset:
+      enabled: true
+      selection_strategy: "representative"  # diverse, random, first_n
+      max_cases: 8
+      required_scenarios:
+        - "bridge_entities"
+        - "temporal_link"
+        - "causal_chain"
+    
+    # Constraints
+    constraints:
+      min_lift_success_rate: 0.90
+      max_retrieval_p95_ms: 500
+      max_packing_p95_ms: 550
+  
+  contradictions:
+    description: "Contradiction detection and badge rendering"
+    testset: "evals/suites/contradictions.jsonl"
+    category: "reasoning"
+    
+    pr_subset:
+      enabled: true
+      selection_strategy: "representative"
+      max_cases: 10
+      required_scenarios:
+        - "direct_conflict"
+        - "temporal_contradiction"
+        - "scope_disagreement"
+    
+    constraints:
+      min_detection_accuracy: 0.95
+      max_packing_p95_ms: 550
+  
+  external_compare:
+    description: "External compare policy compliance"
+    testset: "evals/suites/external_compare.jsonl"
+    category: "policy"
+    
+    pr_subset:
+      enabled: true
+      selection_strategy: "representative"
+      max_cases: 8
+      required_scenarios:
+        - "parity_baseline"
+        - "prefer_internal"
+        - "no_persistence"
+    
+    constraints:
+      min_parity_rate: 0.80
+      max_compare_p95_ms: 2000  # External calls are slower
+      no_ingestion: true
+  
+  pareto_gate:
+    description: "Pareto hypothesis retention gating"
+    testset: "evals/suites/pareto_gate.jsonl"
+    category: "scoring"
+    
+    pr_subset:
+      enabled: true
+      selection_strategy: "representative"
+      max_cases: 12
+      required_scenarios:
+        - "well_above_threshold"
+        - "boundary_case"
+        - "well_below_threshold"
+        - "analytics_override"
+    
+    constraints:
+      min_match_rate: 1.00  # 100% match to expected
+      max_scoring_p95_ms: 200
+
+# Flaky test management
+flaky_tests:
+  # Tests known to be flaky (should be fixed but don't block PR)
+  skip_in_pr:
+    - "implicate_003"  # Flaky due to external dependency
+    - "external_009"   # Intermittent timeout
+  
+  # Tests to retry on failure
+  retry_on_failure:
+    max_retries: 2
+    patterns:
+      - "timeout"
+      - "connection"
+      - "temporary"
+
+# Latency budget configuration
+latency_budgets:
+  # Base budgets (can be adjusted with slack)
+  base:
+    retrieval_p95_ms: 500
+    packing_p95_ms: 550
+    internal_compare_p95_ms: 400
+    external_compare_p95_ms: 2000
+    scoring_p95_ms: 200
+  
+  # Slack configuration
+  slack:
+    # Slack can be overridden via EVAL_LATENCY_SLACK_PERCENT env var
+    default_percent: 10
+    max_percent: 50  # Safety limit
+    min_percent: 0
+    
+    # Which profiles get slack applied
+    apply_to_profiles:
+      - pr
+      - nightly
+    
+    # Operations that don't get slack (always strict)
+    strict_operations: []
+
+# Reporting configuration
+reporting:
+  json_output: true
+  console_summary: true
+  show_histogram: true
+  
+  # What to include in reports
+  include:
+    - latency_metrics
+    - violation_details
+    - category_breakdown
+    - failed_cases
+  
+  # Artifact retention
+  artifacts:
+    retention_days: 30
+    compress: true
+  
+  # Failure reporting
+  failure_detail_level: "verbose"  # minimal, standard, verbose
+
+# Environment configuration
+environment:
+  # Variables that can be overridden
+  variables:
+    - name: "EVAL_LATENCY_SLACK_PERCENT"
+      default: "10"
+      description: "Latency budget slack percentage"
+    
+    - name: "EVAL_SKIP_FLAKY"
+      default: "true"
+      description: "Skip known flaky tests in PR"
+    
+    - name: "EVAL_FAIL_FAST"
+      default: "false"
+      description: "Stop on first failure"
+    
+    - name: "EVAL_VERBOSE"
+      default: "false"
+      description: "Verbose output"
+  
+  # Required environment variables
+  required:
+    - "BASE_URL"
+    - "X_API_KEY"
+
+# CI behavior configuration
+ci_behavior:
+  # When to mark PR as failed
+  fail_pr_on:
+    - functional_failures  # Any test case failures
+    - constraint_violations  # Min pass rate, etc.
+    - latency_violations  # Budget violations (with slack)
+  
+  # When to mark PR as warning (but not failed)
+  warn_pr_on:
+    - flaky_failures  # Known flaky tests
+    - minor_performance_degradation  # < 10% slower
+  
+  # Always allow in PR (don't fail)
+  allow_pr:
+    - documentation_only_changes
+    - comment_changes

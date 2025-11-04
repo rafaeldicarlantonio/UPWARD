@@ -1,0 +1,10 @@
+{
+  "id": "implicate_015",
+  "query": "What distributed training strategies enable efficient model parallelism?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_scaling_019", "doc_efficiency_020"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Connects distributed training (doc_019) with efficiency goals (doc_020). The query implies: parallelism is a method → for efficiency. While doc_019 covers parallelism, understanding it as an efficiency technique requires bridging to doc_020. Graph should link these optimization concerns."
+}

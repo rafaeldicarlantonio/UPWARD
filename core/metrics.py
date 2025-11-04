@@ -41,6 +41,7 @@ class MetricHistogram:
     count: int = 0
     labels: Dict[str, str] = field(default_factory=dict)
     last_updated: float = field(default_factory=time.time)
+    values: List[float] = field(default_factory=list)  # Store raw values for percentile calculation
 
 class MetricsCollector:
     """Thread-safe metrics collector."""
@@ -90,6 +91,12 @@ class MetricsCollector:
             histogram.count += 1
             histogram.last_updated = time.time()
             
+            # Store raw value for percentile calculation (limit to 10k values)
+            histogram.values.append(value)
+            if len(histogram.values) > 10000:
+                # Keep most recent 10k values
+                histogram.values = histogram.values[-10000:]
+            
             # Update bucket counts
             for i, bucket in enumerate(histogram.buckets):
                 if value <= bucket:
@@ -112,7 +119,7 @@ class MetricsCollector:
             return self._gauges.get(key, MetricGauge(name=name, labels=labels or {})).value
     
     def get_histogram_stats(self, name: str, labels: Dict[str, str] = None) -> Dict[str, Any]:
-        """Get histogram statistics."""
+        """Get histogram statistics including percentiles."""
         with self._lock:
             key = self._get_metric_key(name, labels)
             histogram = self._histograms.get(key, MetricHistogram(name=name, labels=labels or {}))
@@ -122,15 +129,45 @@ class MetricsCollector:
                     "count": 0,
                     "sum": 0.0,
                     "avg": 0.0,
+                    "p50": 0.0,
+                    "p95": 0.0,
+                    "p99": 0.0,
+                    "min": 0.0,
+                    "max": 0.0,
                     "buckets": dict(zip(histogram.buckets, histogram.counts))
                 }
+            
+            # Calculate percentiles from raw values
+            sorted_values = sorted(histogram.values)
+            p50 = self._calculate_percentile(sorted_values, 50)
+            p95 = self._calculate_percentile(sorted_values, 95)
+            p99 = self._calculate_percentile(sorted_values, 99)
             
             return {
                 "count": histogram.count,
                 "sum": histogram.sum,
                 "avg": histogram.sum / histogram.count,
+                "p50": p50,
+                "p95": p95,
+                "p99": p99,
+                "min": sorted_values[0] if sorted_values else 0.0,
+                "max": sorted_values[-1] if sorted_values else 0.0,
                 "buckets": dict(zip(histogram.buckets, histogram.counts))
             }
+    
+    def _calculate_percentile(self, sorted_values: List[float], percentile: float) -> float:
+        """Calculate a percentile from sorted values."""
+        if not sorted_values:
+            return 0.0
+        
+        k = (len(sorted_values) - 1) * (percentile / 100.0)
+        f = int(k)
+        c = k - f
+        
+        if f + 1 < len(sorted_values):
+            return sorted_values[f] + c * (sorted_values[f + 1] - sorted_values[f])
+        else:
+            return sorted_values[f]
     
     def get_all_metrics(self) -> Dict[str, Any]:
         """Get all metrics in a structured format."""
@@ -287,6 +324,82 @@ class LedgerMetrics:
         increment_counter("ledger.hash_generations", labels={"algorithm": algorithm})
         observe_histogram("ledger.hash_generation_latency_ms", latency_ms, labels={"algorithm": algorithm})
         observe_histogram("ledger.hash_generation_size_bytes", size_bytes)
+
+class PerformanceMetrics:
+    """Performance metrics for hot paths with p50/p95 tracking."""
+    
+    @staticmethod
+    def record_retrieval(latency_ms: float, success: bool = True, method: str = "dual"):
+        """Record retrieval operation latency."""
+        observe_histogram("retrieval_ms", latency_ms, labels={"success": str(success).lower(), "method": method})
+        increment_counter("retrieval_total", labels={"success": str(success).lower(), "method": method})
+    
+    @staticmethod
+    def record_graph_expand(latency_ms: float, entities_expanded: int = 0):
+        """Record graph expansion latency."""
+        observe_histogram("graph_expand_ms", latency_ms, labels={"entities": str(min(entities_expanded, 10))})
+        increment_counter("graph_expand_total")
+    
+    @staticmethod
+    def record_packing(latency_ms: float, items_packed: int = 0):
+        """Record packing operation latency."""
+        observe_histogram("packing_ms", latency_ms, labels={"items": str(min(items_packed, 20))})
+        increment_counter("packing_total")
+    
+    @staticmethod
+    def record_reviewer(latency_ms: float, skipped: bool = False, reason: str = None):
+        """Record reviewer operation latency."""
+        labels = {"skipped": str(skipped).lower()}
+        if reason:
+            labels["reason"] = reason
+        observe_histogram("reviewer_ms", latency_ms, labels=labels)
+        increment_counter("reviewer_total", labels=labels)
+        if skipped:
+            increment_counter("reviewer_skips")
+            increment_counter("reviewer_skips_by_reason", labels={"reason": reason or "unknown"})
+    
+    @staticmethod
+    def record_pinecone_timeout(operation: str = "query"):
+        """Record Pinecone timeout."""
+        increment_counter("pinecone_timeouts")
+        increment_counter("pinecone_timeouts_by_operation", labels={"operation": operation})
+    
+    @staticmethod
+    def record_pgvector_fallback(reason: str = "timeout"):
+        """Record pgvector fallback."""
+        increment_counter("pgvector_fallbacks")
+        increment_counter("pgvector_fallbacks_by_reason", labels={"reason": reason})
+    
+    @staticmethod
+    def record_circuit_open(service: str):
+        """Record circuit breaker open event."""
+        increment_counter("circuit_opens")
+        increment_counter("circuit_opens_by_service", labels={"service": service})
+    
+    @staticmethod
+    def record_circuit_close(service: str):
+        """Record circuit breaker close event."""
+        increment_counter("circuit_closes")
+        increment_counter("circuit_closes_by_service", labels={"service": service})
+    
+    @staticmethod
+    def get_error_rate(metric_prefix: str = "retrieval") -> float:
+        """Calculate error rate for a metric."""
+        total = get_counter(f"{metric_prefix}_total", labels={"success": "true"}) + \
+                get_counter(f"{metric_prefix}_total", labels={"success": "false"})
+        if total == 0:
+            return 0.0
+        failures = get_counter(f"{metric_prefix}_total", labels={"success": "false"})
+        return failures / total
+    
+    @staticmethod
+    def get_fallback_rate() -> float:
+        """Calculate pgvector fallback rate."""
+        fallbacks = get_counter("pgvector_fallbacks")
+        total_retrievals = get_counter("retrieval_total")
+        if total_retrievals == 0:
+            return 0.0
+        return fallbacks / total_retrievals
 
 class RetrievalMetrics:
     """Specific metrics for retrieval system."""
@@ -465,13 +578,118 @@ class ImplicateRefreshMetrics:
             observe_histogram("implicate_refresh.deduplication_ratio", duplicates / original_count)
 
 
+class EvalMetrics:
+    """Specific metrics for evaluation suite runs."""
+    
+    @staticmethod
+    def record_suite_run(suite_name: str, success: bool, duration_ms: float, cases_count: int):
+        """
+        Record a suite run.
+        
+        Args:
+            suite_name: Name of the suite
+            success: Whether the suite passed
+            duration_ms: Suite duration in milliseconds
+            cases_count: Number of test cases
+        """
+        increment_counter("eval.suite.runs", labels={"suite": suite_name, "success": str(success).lower()})
+        observe_histogram("eval.suite.duration_ms", duration_ms, labels={"suite": suite_name})
+        observe_histogram("eval.suite.cases_count", cases_count, labels={"suite": suite_name})
+    
+    @staticmethod
+    def record_suite_failure(suite_name: str, failure_type: str = "functional"):
+        """
+        Record a suite failure.
+        
+        Args:
+            suite_name: Name of the suite
+            failure_type: Type of failure (functional, latency, constraint)
+        """
+        increment_counter("eval.suite.failures", labels={"suite": suite_name, "type": failure_type})
+    
+    @staticmethod
+    def record_case_result(suite_name: str, case_id: str, passed: bool, category: str = "unknown"):
+        """
+        Record a test case result.
+        
+        Args:
+            suite_name: Name of the suite
+            case_id: Test case ID
+            passed: Whether the test passed
+            category: Test category
+        """
+        increment_counter("eval.cases.total", labels={"suite": suite_name, "category": category})
+        if passed:
+            increment_counter("eval.cases.passed", labels={"suite": suite_name, "category": category})
+        else:
+            increment_counter("eval.cases.failed", labels={"suite": suite_name, "category": category})
+    
+    @staticmethod
+    def record_latency(operation: str, latency_ms: float, suite_name: str = None, category: str = None):
+        """
+        Record operation latency.
+        
+        Args:
+            operation: Operation name (retrieval, packing, compare)
+            latency_ms: Latency in milliseconds
+            suite_name: Optional suite name
+            category: Optional test category
+        """
+        labels = {"operation": operation}
+        if suite_name:
+            labels["suite"] = suite_name
+        if category:
+            labels["category"] = category
+        
+        observe_histogram(f"eval.latency.{operation}_ms", latency_ms, labels=labels)
+    
+    @staticmethod
+    def record_trace_replay(success: bool, trace_id: str = None):
+        """
+        Record a trace replay attempt.
+        
+        Args:
+            success: Whether replay succeeded
+            trace_id: Optional trace ID
+        """
+        labels = {"success": str(success).lower()}
+        if trace_id:
+            labels["trace_id"] = trace_id[:16]  # Truncate for cardinality
+        
+        increment_counter("eval.trace.replay_success" if success else "eval.trace.replay_failure", labels=labels)
+    
+    @staticmethod
+    def set_quality_score(suite_name: str, score: float):
+        """
+        Set quality score (success rate) for a suite.
+        
+        Args:
+            suite_name: Name of the suite
+            score: Quality score (0.0 - 1.0)
+        """
+        set_gauge("eval.suite.quality_score", score, labels={"suite": suite_name})
+    
+    @staticmethod
+    def get_suite_quality_score(suite_name: str) -> float:
+        """
+        Get the quality score for a suite.
+        
+        Args:
+            suite_name: Name of the suite
+        
+        Returns:
+            Quality score (0.0 - 1.0)
+        """
+        return get_gauge("eval.suite.quality_score", labels={"suite": suite_name})
+
+
 # Export the main functions and classes
 __all__ = [
     'MetricsCollector', 'MetricCounter', 'MetricGauge', 'MetricHistogram',
     'increment_counter', 'set_gauge', 'observe_histogram', 'get_counter', 
     'get_gauge', 'get_histogram_stats', 'get_all_metrics', 'reset_metrics',
     'OrchestratorMetrics', 'LedgerMetrics', 'RetrievalMetrics', 'IngestMetrics',
-    'ImplicateRefreshMetrics', 'ExternalCompareMetrics', 'time_operation', 
+    'ImplicateRefreshMetrics', 'ExternalCompareMetrics', 'EvalMetrics', 'time_operation', 
     'record_api_call', 'record_error', 'record_feature_flag_usage',
     # RBAC metrics
     'record_rbac_resolution', 'record_rbac_check', 'record_role_distribution',

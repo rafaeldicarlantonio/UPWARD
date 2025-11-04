@@ -1,0 +1,171 @@
+{
+  "description": "Internal corpus for external compare testing - baseline knowledge",
+  "internal_documents": [
+    {
+      "id": "internal_python_001",
+      "title": "Python Programming Basics",
+      "content": "Python is a high-level programming language known for simplicity and readability. It supports multiple programming paradigms including procedural, object-oriented, and functional programming. Python uses indentation for code blocks.",
+      "metadata": {
+        "category": "programming",
+        "topic": "python_basics",
+        "confidence": "high"
+      }
+    },
+    {
+      "id": "internal_ml_002",
+      "title": "Machine Learning Fundamentals",
+      "content": "Machine learning is a subset of artificial intelligence that enables systems to learn from data. Common algorithms include linear regression, decision trees, and neural networks. Training requires labeled data and optimization.",
+      "metadata": {
+        "category": "ai",
+        "topic": "ml_fundamentals",
+        "confidence": "high"
+      }
+    },
+    {
+      "id": "internal_react_003",
+      "title": "React Framework Overview",
+      "content": "React is a JavaScript library for building user interfaces. It uses a component-based architecture and virtual DOM for efficient rendering. React was developed by Facebook and is widely used for web applications.",
+      "metadata": {
+        "category": "web_dev",
+        "topic": "react_basics",
+        "confidence": "medium"
+      }
+    },
+    {
+      "id": "internal_docker_004",
+      "title": "Docker Container Basics",
+      "content": "Docker is a platform for developing and running applications in containers. Containers package software with all dependencies for consistent deployment across environments. Docker uses images and containers.",
+      "metadata": {
+        "category": "devops",
+        "topic": "docker_basics",
+        "confidence": "medium"
+      }
+    },
+    {
+      "id": "internal_sql_005",
+      "title": "SQL Database Queries",
+      "content": "SQL is a language for managing relational databases. Common operations include SELECT, INSERT, UPDATE, and DELETE. SQL supports joins, aggregations, and subqueries for complex data retrieval.",
+      "metadata": {
+        "category": "databases",
+        "topic": "sql_basics",
+        "confidence": "high"
+      }
+    },
+    {
+      "id": "internal_git_006",
+      "title": "Git Version Control",
+      "content": "Git is a distributed version control system for tracking code changes. Core concepts include commits, branches, and merges. Git enables collaboration through remote repositories.",
+      "metadata": {
+        "category": "devops",
+        "topic": "git_basics",
+        "confidence": "high"
+      }
+    },
+    {
+      "id": "internal_api_007",
+      "title": "REST API Design",
+      "content": "REST APIs use HTTP methods for CRUD operations. Common conventions include resource-based URLs, JSON payloads, and status codes. RESTful design emphasizes statelessness.",
+      "metadata": {
+        "category": "architecture",
+        "topic": "rest_api",
+        "confidence": "medium"
+      }
+    },
+    {
+      "id": "internal_kubernetes_008",
+      "title": "Kubernetes Orchestration",
+      "content": "Kubernetes orchestrates containerized applications across clusters. Key concepts include pods, services, and deployments. Kubernetes handles scaling, load balancing, and self-healing.",
+      "metadata": {
+        "category": "devops",
+        "topic": "kubernetes_basics",
+        "confidence": "low"
+      }
+    }
+  ],
+  "external_sources": {
+    "description": "Mock external API responses for testing",
+    "redundant_externals": [
+      {
+        "query_match": "python programming",
+        "external_id": "ext_python_wiki",
+        "content": "Python is a high-level interpreted language created by Guido van Rossum. It emphasizes code readability through significant whitespace.",
+        "relevance": "high",
+        "adds_value": false,
+        "reason": "Redundant with internal_python_001"
+      },
+      {
+        "query_match": "machine learning algorithms",
+        "external_id": "ext_ml_overview",
+        "content": "Machine learning algorithms learn patterns from data. Popular algorithms include linear models, tree-based methods, and deep learning.",
+        "relevance": "high",
+        "adds_value": false,
+        "reason": "Redundant with internal_ml_002"
+      },
+      {
+        "query_match": "SQL database",
+        "external_id": "ext_sql_ref",
+        "content": "SQL (Structured Query Language) manages relational databases. Basic commands are SELECT, INSERT, UPDATE, DELETE.",
+        "relevance": "high",
+        "adds_value": false,
+        "reason": "Redundant with internal_sql_005"
+      }
+    ],
+    "additive_externals": [
+      {
+        "query_match": "react hooks",
+        "external_id": "ext_react_hooks",
+        "content": "React Hooks were introduced in React 16.8, enabling state and lifecycle features in functional components. Common hooks include useState, useEffect, and useContext. Hooks have become the recommended pattern for React development.",
+        "relevance": "high",
+        "adds_value": true,
+        "reason": "Adds specific hook information not in internal_react_003"
+      },
+      {
+        "query_match": "docker compose",
+        "external_id": "ext_docker_compose",
+        "content": "Docker Compose is a tool for defining multi-container applications using YAML files. It simplifies orchestration of services, networks, and volumes. Compose is ideal for development environments.",
+        "relevance": "high",
+        "adds_value": true,
+        "reason": "Adds Compose-specific info not in internal_docker_004"
+      },
+      {
+        "query_match": "kubernetes helm",
+        "external_id": "ext_k8s_helm",
+        "content": "Helm is a package manager for Kubernetes that simplifies application deployment. Helm charts define Kubernetes resources as reusable templates. Helm 3 removed Tiller for improved security.",
+        "relevance": "high",
+        "adds_value": true,
+        "reason": "Adds Helm info not in internal_kubernetes_008"
+      }
+    ],
+    "contradictory_externals": [
+      {
+        "query_match": "git best practices",
+        "external_id": "ext_git_practices",
+        "content": "Git best practices have evolved. Modern consensus recommends trunk-based development over feature branches, with frequent small commits directly to main. Branching is considered an anti-pattern in agile teams.",
+        "relevance": "medium",
+        "adds_value": true,
+        "reason": "Contradicts traditional branching mentioned in internal_git_006",
+        "policy_action": "abstain"
+      },
+      {
+        "query_match": "REST API alternatives",
+        "external_id": "ext_graphql",
+        "content": "GraphQL has largely replaced REST as the API standard. GraphQL provides flexible queries, reduces over-fetching, and offers better performance. Most new APIs should use GraphQL instead of REST.",
+        "relevance": "medium",
+        "adds_value": true,
+        "reason": "Contradicts REST focus in internal_api_007",
+        "policy_action": "prefer_internal"
+      }
+    ],
+    "low_quality_externals": [
+      {
+        "query_match": "programming languages",
+        "external_id": "ext_spam_001",
+        "content": "Click here for amazing programming deals! Learn Python in 5 minutes with our revolutionary course! 100% guaranteed results!",
+        "relevance": "low",
+        "adds_value": false,
+        "reason": "Spam/low-quality content",
+        "policy_action": "reject"
+      }
+    ]
+  }
+}

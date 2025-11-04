@@ -1,0 +1,11 @@
+{
+  "id": "external_002",
+  "query": "What machine learning algorithms are commonly used?",
+  "category": "external_compare",
+  "expected_parity": true,
+  "expected_policy": null,
+  "external_scenario": "redundant",
+  "internal_sources": ["internal_ml_002"],
+  "external_source": "ext_ml_overview",
+  "rationale": "External ML overview duplicates internal content. Should maintain parity between external OFF and ON modes."
+}

@@ -1,0 +1,10 @@
+{
+  "id": "implicate_013",
+  "query": "How does adversarial training improve model robustness?",
+  "category": "implicate_lift",
+  "expected_source_ids": ["doc_safety_018", "doc_regularization_007"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "rationale": "Connects adversarial training (doc_018) with general robustness/regularization concepts (doc_007). While doc_018 mentions adversarial training, understanding it as a form of regularization requires bridging to doc_007. Graph should understand adversarial training as a robustness technique."
+}

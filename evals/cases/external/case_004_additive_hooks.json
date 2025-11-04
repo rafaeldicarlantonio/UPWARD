@@ -1,0 +1,11 @@
+{
+  "id": "external_004",
+  "query": "How do React hooks work?",
+  "category": "external_compare",
+  "expected_parity": false,
+  "expected_policy": "prefer_internal",
+  "external_scenario": "additive",
+  "internal_sources": ["internal_react_003"],
+  "external_source": "ext_react_hooks",
+  "rationale": "External provides additional hooks information. Should show policy-compliant divergence with prefer_internal tiebreak when external adds meaningful content."
+}

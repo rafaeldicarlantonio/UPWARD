@@ -1,0 +1,12 @@
+{
+  "id": "implicate_006_general",
+  "query": "How does scaling language models lead to emergent capabilities?",
+  "category": "implicate_lift",
+  "role": "general",
+  "expected_source_ids": ["doc_scaling_015", "doc_emergent_016"],
+  "expected_in_top_k": 8,
+  "max_latency_ms": 500,
+  "legacy_should_miss": true,
+  "redaction_expected": true,
+  "rationale": "General role variant. Bridges scaling laws with emergent behavior. Redaction of sensitive model details should not prevent understanding the core relationship."
+}

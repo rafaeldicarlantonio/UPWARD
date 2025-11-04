@@ -5,14 +5,16 @@ from __future__ import annotations
 import time
 import math
 import os
+import asyncio
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, Set
+from dataclasses import dataclass, field
 
 from feature_flags import get_feature_flag
 from app.services.vector_store import VectorStore
 from core.ranking import LiftScoreRanker
 from core.metrics import RetrievalMetrics, time_operation, record_feature_flag_usage
+from config import load_config
 
 # Import RBAC level filtering
 try:
@@ -35,6 +37,9 @@ class SelectionResult:
     reasons: List[str]
     strategy_used: str
     metadata: Dict[str, Any]
+    warnings: List[str] = field(default_factory=list)
+    timings: Dict[str, float] = field(default_factory=dict)
+    fallback: Dict[str, Any] = field(default_factory=dict)  # Fallback info
 
 class SelectionStrategy(ABC):
     """Abstract base class for selection strategies."""
@@ -166,6 +171,8 @@ class DualSelector(SelectionStrategy):
         self.vector_store = VectorStore()
         self.ranker = LiftScoreRanker()
         self._db_adapter = None  # Lazy load
+        self._fallback_adapter = None  # Lazy load fallback
+        self._circuit_breaker = None  # Lazy load circuit breaker
     
     @property
     def db_adapter(self):
@@ -175,6 +182,30 @@ class DualSelector(SelectionStrategy):
             self._db_adapter = DatabaseAdapter()
         return self._db_adapter
     
+    @property
+    def fallback_adapter(self):
+        """Lazy load fallback adapter."""
+        if self._fallback_adapter is None:
+            from adapters.vector_fallback import get_fallback_adapter
+            self._fallback_adapter = get_fallback_adapter()
+        return self._fallback_adapter
+    
+    @property
+    def circuit_breaker(self):
+        """Lazy load Pinecone circuit breaker."""
+        if self._circuit_breaker is None:
+            from core.circuit import get_circuit_breaker, CircuitBreakerConfig
+            self._circuit_breaker = get_circuit_breaker(
+                "pinecone",
+                CircuitBreakerConfig(
+                    name="pinecone",
+                    failure_threshold=5,
+                    cooldown_seconds=60.0,
+                    success_threshold=2
+                )
+            )
+        return self._circuit_breaker
+    
     def select(self, 
                query: str, 
                embedding: List[float], 
@@ -182,30 +213,146 @@ class DualSelector(SelectionStrategy):
                **kwargs) -> SelectionResult:
         """Dual index selection with graph expansion."""
         
+        # Check cache first (unless bypassed)
+        if not kwargs.get('bypass_cache', False):
+            try:
+                from core.cache import get_cache
+                cache = get_cache()
+                
+                # Try to get cached selection result
+                cached_result = cache.get_selection(
+                    query=query,
+                    role=caller_role,
+                    explicate_k=kwargs.get('explicate_top_k', 16),
+                    implicate_k=kwargs.get('implicate_top_k', 8)
+                )
+                
+                if cached_result is not None:
+                    return cached_result
+            except Exception:
+                # If cache fails, continue without it
+                pass
+        
         # Record feature flag usage
         record_feature_flag_usage("retrieval.dual_index", True)
         
         caller_roles = kwargs.get('caller_roles', [caller_role] if caller_role else ['general'])
         explicate_k = kwargs.get('explicate_top_k', 16)
         implicate_k = kwargs.get('implicate_top_k', 8)
+        use_parallel = kwargs.get('use_parallel', True)
+        
+        # Check if parallel queries are enabled via config
+        try:
+            cfg = load_config()
+            parallel_enabled = cfg.get('PERF_RETRIEVAL_PARALLEL', True)
+            retrieval_timeout = cfg.get('PERF_RETRIEVAL_TIMEOUT_MS', 450) / 1000.0  # Convert to seconds
+            graph_timeout = cfg.get('PERF_GRAPH_TIMEOUT_MS', 150) / 1000.0
+        except Exception:
+            parallel_enabled = True
+            retrieval_timeout = 0.45
+            graph_timeout = 0.15
+        
+        # Use parallel queries if enabled and requested
+        if parallel_enabled and use_parallel:
+            return self._select_parallel(
+                query=query,
+                embedding=embedding,
+                caller_role=caller_role,
+                caller_roles=caller_roles,
+                explicate_k=explicate_k,
+                implicate_k=implicate_k,
+                retrieval_timeout=retrieval_timeout,
+                **kwargs
+            )
+        
+        # Fall back to sequential queries
+        # Check if we should use fallback
+        fallback_info = {"used": False}
+        use_fallback = kwargs.get('force_fallback', False)
+        
+        if not use_fallback:
+            should_fallback, fallback_reason = self.fallback_adapter.should_use_fallback()
+            use_fallback = should_fallback
+            if use_fallback:
+                fallback_info = {
+                    "used": True,
+                    "reason": fallback_reason,
+                    "reduced_k": {
+                        "explicate": self.fallback_adapter.FALLBACK_EXPLICATE_K,
+                        "implicate": self.fallback_adapter.FALLBACK_IMPLICATE_K
+                    }
+                }
+        else:
+            fallback_info = {"used": True, "reason": "forced"}
         
         with time_operation("dual_query_total", labels={"explicate_k": str(explicate_k), "implicate_k": str(implicate_k)}):
-            # Query both indices
-            with time_operation("explicate_query"):
-                explicate_hits = self.vector_store.query_explicit(
-                    embedding=embedding,
-                    top_k=explicate_k,
-                    filter=kwargs.get('filter'),
-                    caller_role=caller_role
-                )
-            
-            with time_operation("implicate_query"):
-                implicate_hits = self.vector_store.query_implicate(
-                    embedding=embedding,
-                    top_k=implicate_k,
-                    filter=kwargs.get('filter'),
-                    caller_role=caller_role
-                )
+            if use_fallback:
+                # Use fallback queries with reduced k
+                with time_operation("explicate_query_fallback"):
+                    explicate_result = self.fallback_adapter.query_explicate_fallback(
+                        embedding=embedding,
+                        top_k=None,  # Uses fallback default
+                        filter=kwargs.get('filter'),
+                        caller_role=caller_role
+                    )
+                    explicate_hits = type('obj', (object,), {'matches': explicate_result.matches})()
+                
+                with time_operation("implicate_query_fallback"):
+                    implicate_result = self.fallback_adapter.query_implicate_fallback(
+                        embedding=embedding,
+                        top_k=None,  # Uses fallback default
+                        filter=kwargs.get('filter'),
+                        caller_role=caller_role
+                    )
+                    implicate_hits = type('obj', (object,), {'matches': implicate_result.matches})()
+            else:
+                # Normal Pinecone queries with circuit breaker
+                try:
+                    with time_operation("explicate_query"):
+                        explicate_hits = self.circuit_breaker.call(
+                            self.vector_store.query_explicit,
+                            embedding=embedding,
+                            top_k=explicate_k,
+                            filter=kwargs.get('filter'),
+                            caller_role=caller_role
+                        )
+                    
+                    with time_operation("implicate_query"):
+                        implicate_hits = self.circuit_breaker.call(
+                            self.vector_store.query_implicate,
+                            embedding=embedding,
+                            top_k=implicate_k,
+                            filter=kwargs.get('filter'),
+                            caller_role=caller_role
+                        )
+                except Exception as e:
+                    # Circuit breaker open or query failed, try fallback
+                    from core.circuit import CircuitBreakerOpenError
+                    if isinstance(e, CircuitBreakerOpenError) or use_fallback:
+                        with time_operation("explicate_query_fallback"):
+                            explicate_result = self.fallback_adapter.query_explicate_fallback(
+                                embedding=embedding,
+                                top_k=None,
+                                filter=kwargs.get('filter'),
+                                caller_role=caller_role
+                            )
+                            explicate_hits = type('obj', (object,), {'matches': explicate_result.matches})()
+                        
+                        with time_operation("implicate_query_fallback"):
+                            implicate_result = self.fallback_adapter.query_implicate_fallback(
+                                embedding=embedding,
+                                top_k=None,
+                                filter=kwargs.get('filter'),
+                                caller_role=caller_role
+                            )
+                            implicate_hits = type('obj', (object,), {'matches': implicate_result.matches})()
+                        
+                        fallback_info = {
+                            "used": True,
+                            "reason": f"circuit_breaker_open: {str(e)}" if isinstance(e, CircuitBreakerOpenError) else str(e)
+                        }
+                    else:
+                        raise
         
         # Process explicate hits
         with time_operation("explicate_processing"):
@@ -241,7 +388,7 @@ class DualSelector(SelectionStrategy):
         # Generate reasons
         reasons = self._generate_reasons(ranked_result["context"], explicate_hits.matches, implicate_hits.matches)
         
-        return SelectionResult(
+        result = SelectionResult(
             context=ranked_result["context"],
             ranked_ids=ranked_result["ranked_ids"],
             reasons=reasons,
@@ -251,8 +398,34 @@ class DualSelector(SelectionStrategy):
                 "implicate_hits": len(implicate_hits.matches),
                 "total_after_dedup": len(all_records) + filtered_count,
                 "filtered_by_level": filtered_count
-            }
+            },
+            warnings=[],
+            timings={},
+            fallback=fallback_info
         )
+        
+        # Cache the result (unless bypassed)
+        if not kwargs.get('bypass_cache', False):
+            try:
+                from core.cache import get_cache
+                cache = get_cache()
+                
+                # Extract entity IDs from result for invalidation
+                entity_ids = self._extract_entity_ids(all_records)
+                
+                cache.set_selection(
+                    query=query,
+                    result=result,
+                    role=caller_role,
+                    entity_ids=entity_ids,
+                    explicate_k=explicate_k,
+                    implicate_k=implicate_k
+                )
+            except Exception:
+                # If caching fails, continue without it
+                pass
+        
+        return result
     
     def _process_explicate_hits(self, hits: List[Any], caller_roles: List[str]) -> List[Dict[str, Any]]:
         """Process explicate index hits."""
@@ -384,6 +557,199 @@ class DualSelector(SelectionStrategy):
                 deduplicated.append(record)
         
         return deduplicated
+    
+    def _select_parallel(
+        self,
+        query: str,
+        embedding: List[float],
+        caller_role: Optional[str],
+        caller_roles: List[str],
+        explicate_k: int,
+        implicate_k: int,
+        retrieval_timeout: float,
+        **kwargs
+    ) -> SelectionResult:
+        """Execute dual index selection with parallel queries."""
+        warnings = []
+        timings = {}
+        
+        # Run async queries
+        try:
+            explicate_hits, implicate_hits, query_timings = asyncio.run(
+                self._query_both_indices_async(
+                    embedding=embedding,
+                    explicate_k=explicate_k,
+                    implicate_k=implicate_k,
+                    filter=kwargs.get('filter'),
+                    caller_role=caller_role,
+                    retrieval_timeout=retrieval_timeout
+                )
+            )
+            timings.update(query_timings)
+        except Exception as e:
+            # If parallel queries fail completely, fall back to sequential
+            warnings.append(f"Parallel query failed, using sequential fallback: {str(e)}")
+            with time_operation("dual_query_total_fallback"):
+                explicate_hits = self.vector_store.query_explicit(
+                    embedding=embedding,
+                    top_k=explicate_k,
+                    filter=kwargs.get('filter'),
+                    caller_role=caller_role
+                )
+                implicate_hits = self.vector_store.query_implicate(
+                    embedding=embedding,
+                    top_k=implicate_k,
+                    filter=kwargs.get('filter'),
+                    caller_role=caller_role
+                )
+        
+        # Check if either query timed out or had issues
+        if explicate_hits is None:
+            warnings.append("Explicate query timed out - using implicate results only")
+            explicate_hits = type('obj', (object,), {'matches': []})()
+        
+        if implicate_hits is None:
+            warnings.append("Implicate query timed out - using explicate results only")
+            implicate_hits = type('obj', (object,), {'matches': []})()
+        
+        # Process hits
+        with time_operation("explicate_processing"):
+            explicate_records = self._process_explicate_hits(explicate_hits.matches, caller_roles) if explicate_hits.matches else []
+        
+        with time_operation("implicate_processing"):
+            implicate_records = self._process_implicate_hits(implicate_hits.matches, caller_role, caller_roles) if implicate_hits.matches else []
+        
+        # Record dual query metrics
+        RetrievalMetrics.record_dual_query(explicate_k, implicate_k, 0)
+        
+        # Combine and deduplicate
+        with time_operation("record_deduplication"):
+            all_records = self._deduplicate_records(explicate_records + implicate_records)
+        
+        # Filter by role visibility level
+        if RBAC_LEVELS_AVAILABLE:
+            original_count = len(all_records)
+            all_records = filter_memories_by_level(all_records, caller_roles)
+            filtered_count = original_count - len(all_records)
+        else:
+            filtered_count = 0
+        
+        # Rank using LiftScore
+        with time_operation("liftscore_ranking"):
+            ranked_result = self.ranker.rank_and_pack(
+                records=all_records,
+                query=query,
+                caller_role=caller_role
+            )
+        
+        # Generate reasons
+        reasons = self._generate_reasons(ranked_result["context"], explicate_hits.matches, implicate_hits.matches)
+        
+        result = SelectionResult(
+            context=ranked_result["context"],
+            ranked_ids=ranked_result["ranked_ids"],
+            reasons=reasons,
+            strategy_used="dual_parallel",
+            metadata={
+                "explicate_hits": len(explicate_hits.matches),
+                "implicate_hits": len(implicate_hits.matches),
+                "total_after_dedup": len(all_records) + filtered_count,
+                "filtered_by_level": filtered_count,
+                "parallel": True
+            },
+            warnings=warnings,
+            timings=timings,
+            fallback={"used": False}  # Parallel mode doesn't use fallback yet
+        )
+        
+        # Cache the result (unless bypassed)
+        if not kwargs.get('bypass_cache', False):
+            try:
+                from core.cache import get_cache
+                cache = get_cache()
+                
+                # Extract entity IDs from result for invalidation
+                entity_ids = self._extract_entity_ids(all_records)
+                
+                cache.set_selection(
+                    query=query,
+                    result=result,
+                    role=caller_role,
+                    entity_ids=entity_ids,
+                    explicate_k=explicate_k,
+                    implicate_k=implicate_k
+                )
+            except Exception:
+                # If caching fails, continue without it
+                pass
+        
+        return result
+    
+    async def _query_both_indices_async(
+        self,
+        embedding: List[float],
+        explicate_k: int,
+        implicate_k: int,
+        filter: Optional[Dict[str, Any]],
+        caller_role: Optional[str],
+        retrieval_timeout: float
+    ) -> Tuple[Any, Any, Dict[str, float]]:
+        """Query both indices in parallel with timeout handling."""
+        timings = {}
+        
+        # Create tasks for both queries
+        async def query_explicate_with_timing():
+            start = time.time()
+            try:
+                result = await self.vector_store.query_explicit_async(
+                    embedding=embedding,
+                    top_k=explicate_k,
+                    filter=filter,
+                    caller_role=caller_role,
+                    timeout=retrieval_timeout
+                )
+                timings['explicate_ms'] = (time.time() - start) * 1000
+                return result
+            except asyncio.TimeoutError:
+                timings['explicate_ms'] = retrieval_timeout * 1000
+                timings['explicate_timeout'] = True
+                return None
+            except Exception as e:
+                timings['explicate_ms'] = (time.time() - start) * 1000
+                timings['explicate_error'] = str(e)
+                return None
+        
+        async def query_implicate_with_timing():
+            start = time.time()
+            try:
+                result = await self.vector_store.query_implicate_async(
+                    embedding=embedding,
+                    top_k=implicate_k,
+                    filter=filter,
+                    caller_role=caller_role,
+                    timeout=retrieval_timeout
+                )
+                timings['implicate_ms'] = (time.time() - start) * 1000
+                return result
+            except asyncio.TimeoutError:
+                timings['implicate_ms'] = retrieval_timeout * 1000
+                timings['implicate_timeout'] = True
+                return None
+            except Exception as e:
+                timings['implicate_ms'] = (time.time() - start) * 1000
+                timings['implicate_error'] = str(e)
+                return None
+        
+        # Run both queries in parallel
+        total_start = time.time()
+        explicate_result, implicate_result = await asyncio.gather(
+            query_explicate_with_timing(),
+            query_implicate_with_timing(),
+            return_exceptions=False
+        )
+        timings['total_wall_time_ms'] = (time.time() - total_start) * 1000
+        
+        return explicate_result, implicate_result, timings
     
     def _generate_reasons(self, context: List[Dict[str, Any]], explicate_hits: List[Any], implicate_hits: List[Any]) -> List[str]:
         """Generate reason strings for each context item."""

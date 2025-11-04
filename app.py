@@ -13,7 +13,22 @@ from config import (
     RECENCY_FLOOR,
 )
 
-CFG = load_config()
+try:
+    CFG = load_config()
+except Exception as e:
+    import sys
+    import traceback
+    print("=" * 80, file=sys.stderr)
+    print("FATAL: Failed to load configuration", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    print(f"Error: {e}", file=sys.stderr)
+    print(file=sys.stderr)
+    print("Full traceback:", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    print("Check your environment variables in Render dashboard", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    sys.exit(1)
 
 app = FastAPI(
     title="SUAPS Brain",

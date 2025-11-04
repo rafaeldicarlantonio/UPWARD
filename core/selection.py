@@ -7,7 +7,7 @@ import math
 import os
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 from dataclasses import dataclass, field
 
 from feature_flags import get_feature_flag
@@ -213,6 +213,26 @@ class DualSelector(SelectionStrategy):
                **kwargs) -> SelectionResult:
         """Dual index selection with graph expansion."""
         
+        # Check cache first (unless bypassed)
+        if not kwargs.get('bypass_cache', False):
+            try:
+                from core.cache import get_cache
+                cache = get_cache()
+                
+                # Try to get cached selection result
+                cached_result = cache.get_selection(
+                    query=query,
+                    role=caller_role,
+                    explicate_k=kwargs.get('explicate_top_k', 16),
+                    implicate_k=kwargs.get('implicate_top_k', 8)
+                )
+                
+                if cached_result is not None:
+                    return cached_result
+            except Exception:
+                # If cache fails, continue without it
+                pass
+        
         # Record feature flag usage
         record_feature_flag_usage("retrieval.dual_index", True)
         
@@ -368,7 +388,7 @@ class DualSelector(SelectionStrategy):
         # Generate reasons
         reasons = self._generate_reasons(ranked_result["context"], explicate_hits.matches, implicate_hits.matches)
         
-        return SelectionResult(
+        result = SelectionResult(
             context=ranked_result["context"],
             ranked_ids=ranked_result["ranked_ids"],
             reasons=reasons,
@@ -383,6 +403,29 @@ class DualSelector(SelectionStrategy):
             timings={},
             fallback=fallback_info
         )
+        
+        # Cache the result (unless bypassed)
+        if not kwargs.get('bypass_cache', False):
+            try:
+                from core.cache import get_cache
+                cache = get_cache()
+                
+                # Extract entity IDs from result for invalidation
+                entity_ids = self._extract_entity_ids(all_records)
+                
+                cache.set_selection(
+                    query=query,
+                    result=result,
+                    role=caller_role,
+                    entity_ids=entity_ids,
+                    explicate_k=explicate_k,
+                    implicate_k=implicate_k
+                )
+            except Exception:
+                # If caching fails, continue without it
+                pass
+        
+        return result
     
     def _process_explicate_hits(self, hits: List[Any], caller_roles: List[str]) -> List[Dict[str, Any]]:
         """Process explicate index hits."""
@@ -602,7 +645,7 @@ class DualSelector(SelectionStrategy):
         # Generate reasons
         reasons = self._generate_reasons(ranked_result["context"], explicate_hits.matches, implicate_hits.matches)
         
-        return SelectionResult(
+        result = SelectionResult(
             context=ranked_result["context"],
             ranked_ids=ranked_result["ranked_ids"],
             reasons=reasons,
@@ -618,6 +661,29 @@ class DualSelector(SelectionStrategy):
             timings=timings,
             fallback={"used": False}  # Parallel mode doesn't use fallback yet
         )
+        
+        # Cache the result (unless bypassed)
+        if not kwargs.get('bypass_cache', False):
+            try:
+                from core.cache import get_cache
+                cache = get_cache()
+                
+                # Extract entity IDs from result for invalidation
+                entity_ids = self._extract_entity_ids(all_records)
+                
+                cache.set_selection(
+                    query=query,
+                    result=result,
+                    role=caller_role,
+                    entity_ids=entity_ids,
+                    explicate_k=explicate_k,
+                    implicate_k=implicate_k
+                )
+            except Exception:
+                # If caching fails, continue without it
+                pass
+        
+        return result
     
     async def _query_both_indices_async(
         self,

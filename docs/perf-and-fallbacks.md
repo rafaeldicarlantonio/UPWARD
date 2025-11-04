@@ -1,142 +1,183 @@
-# Performance and Fallbacks - Operator Runbook
+# Performance Monitoring & Fallback Management — Operator Runbook
 
-**Version**: 1.0  
 **Last Updated**: 2025-11-04  
-**Target Audience**: DevOps, SRE, Platform Engineers
+**Audience**: Site Reliability Engineers, DevOps, Operators  
+**Prerequisites**: Access to production environment, `curl`, `jq` (optional)
 
 ---
 
 ## Table of Contents
 
 1. [Quick Reference](#quick-reference)
-2. [Performance Flags](#performance-flags)
+2. [Performance Flags & Configuration](#performance-flags--configuration)
 3. [Circuit Breakers](#circuit-breakers)
-4. [Latency Budgets](#latency-budgets)
-5. [Resource Limits](#resource-limits)
-6. [Fallback Mechanisms](#fallback-mechanisms)
-7. [Checking Metrics (p95, etc.)](#checking-metrics)
-8. [Responding to Budget Breaches](#responding-to-budget-breaches)
-9. [Common Operations](#common-operations)
-10. [Troubleshooting](#troubleshooting)
-11. [Dashboards and Monitoring](#dashboards-and-monitoring)
+4. [Fallback System](#fallback-system)
+5. [Metrics & Observability](#metrics--observability)
+6. [Performance SLOs](#performance-slos)
+7. [Load Testing](#load-testing)
+8. [Troubleshooting](#troubleshooting)
+9. [Runbook Procedures](#runbook-procedures)
 
 ---
 
 ## Quick Reference
 
-### Emergency Actions
+### Essential Endpoints
 
 ```bash
-# System overloaded - increase resource limits
-export LIMITS_MAX_CONCURRENT_GLOBAL=200
-export LIMITS_MAX_QUEUE_SIZE_GLOBAL=1000
-restart-service
+# Health check
+curl http://localhost:8000/health
 
-# Pinecone down - enable pgvector fallback
-export PERF_PGVECTOR_ENABLED=true
-export PERF_FALLBACKS_ENABLED=true
-restart-service
+# Metrics with p95 latencies
+curl http://localhost:8000/debug/metrics | jq '.performance'
 
-# Latency issues - relax budgets temporarily
-export LATENCY_SLACK_PERCENT=10
-# Then investigate root cause
+# Compact metrics summary
+curl http://localhost:8000/debug/metrics/summary
 
-# Complete outage - circuit breaker open
-# Check logs: grep "circuit_breaker" /var/log/app.log
-# Wait for auto-reset (60s default) or restart service
+# Current configuration
+curl http://localhost:8000/debug/config
+
+# Limiter statistics
+curl http://localhost:8000/debug/limits
 ```
 
-### Health Checks
+### Key Performance Indicators
+
+| Metric | SLO | Critical Threshold | Action |
+|--------|-----|-------------------|---------|
+| Retrieval p95 | ≤ 500ms | > 600ms | Check Pinecone, review circuit breaker |
+| Packing p95 | ≤ 550ms | > 650ms | Review context size, optimize packing |
+| Reviewer p95 | ≤ 500ms | > 600ms | Check LLM API, consider disabling |
+| Overall /chat p95 | ≤ 1200ms | > 1500ms | Investigate all components |
+| Error rate | ≤ 5% | > 10% | Check logs, circuit breakers |
+| Fallback rate | ≤ 30% | > 50% | Check Pinecone health |
+
+### Emergency Commands
 
 ```bash
-# Overall health
-curl http://localhost:8000/healthz
+# Force all traffic to fallback (Pinecone outage)
+export PERF_PGVECTOR_ENABLED=true
+export PERF_FALLBACKS_ENABLED=true
 
-# Debug router status
-curl http://localhost:8000/debug/routers
+# Disable reviewer to reduce latency
+export PERF_REVIEWER_ENABLED=false
 
-# Self-test (DB, Pinecone)
-curl http://localhost:8000/debug/selftest
+# Increase concurrency limits during load spike
+export LIMITS_MAX_CONCURRENT_GLOBAL=200
+
+# Reset circuit breakers
+curl -X POST http://localhost:8000/debug/circuit-breakers/reset
 ```
 
 ---
 
-## Performance Flags
+## Performance Flags & Configuration
 
 ### Overview
 
-Performance flags control timeouts, parallel execution, and fallback behavior.
+Performance flags control system behavior and resource allocation. All flags have sensible defaults and can be overridden via environment variables.
 
-### Configuration
+### Flag Reference
 
-Located in `config.py` under `DEFAULTS`:
-
-```python
-# Performance and fallback flags
-"PERF_RETRIEVAL_PARALLEL": True,
-"PERF_RETRIEVAL_TIMEOUT_MS": 450,
-"PERF_GRAPH_TIMEOUT_MS": 150,
-"PERF_COMPARE_TIMEOUT_MS": 400,
-"PERF_REVIEWER_ENABLED": True,
-"PERF_REVIEWER_BUDGET_MS": 500,
-"PERF_PGVECTOR_ENABLED": True,
-"PERF_FALLBACKS_ENABLED": True,
-```
-
-### Environment Variables
-
-Set via `.env` or environment:
+#### Retrieval Flags
 
 ```bash
-# Retrieval settings
-PERF_RETRIEVAL_PARALLEL=true          # Enable parallel Pinecone + graph retrieval
-PERF_RETRIEVAL_TIMEOUT_MS=450         # Timeout for retrieval operations
+# Enable parallel dual-index retrieval (recommended)
+PERF_RETRIEVAL_PARALLEL=true
 
-# Graph expansion
-PERF_GRAPH_TIMEOUT_MS=150             # Timeout for graph traversal
+# Retrieval timeout (milliseconds)
+PERF_RETRIEVAL_TIMEOUT_MS=450
 
-# Comparison
-PERF_COMPARE_TIMEOUT_MS=400           # Timeout for internal comparisons
-
-# Reviewer
-PERF_REVIEWER_ENABLED=true            # Enable answer review
-PERF_REVIEWER_BUDGET_MS=500           # Max time for reviewer
-
-# Fallbacks
-PERF_PGVECTOR_ENABLED=true            # Enable pgvector fallback
-PERF_FALLBACKS_ENABLED=true           # Enable all fallback mechanisms
+# Example: Increase timeout for slow networks
+export PERF_RETRIEVAL_TIMEOUT_MS=600
 ```
 
-### Checking Current Flags
+#### Graph Expansion Flags
 
 ```bash
-# Via debug endpoint
-curl http://localhost:8000/debug/config | jq '.PERF_RETRIEVAL_PARALLEL'
+# Graph expansion timeout (milliseconds)
+PERF_GRAPH_TIMEOUT_MS=150
 
-# Via Python
-python3 << 'EOF'
-from config import load_config
-cfg = load_config()
-print(f"Parallel: {cfg['PERF_RETRIEVAL_PARALLEL']}")
-print(f"PGVector: {cfg['PERF_PGVECTOR_ENABLED']}")
-print(f"Fallbacks: {cfg['PERF_FALLBACKS_ENABLED']}")
-EOF
+# Maximum neighbors to expand
+LIMITS_GRAPH_MAX_NEIGHBORS=50
+
+# Maximum graph depth
+LIMITS_GRAPH_MAX_DEPTH=1
+
+# Example: Reduce graph expansion for lower latency
+export PERF_GRAPH_TIMEOUT_MS=100
+export LIMITS_GRAPH_MAX_NEIGHBORS=30
 ```
 
-### Modifying Flags at Runtime
-
-**⚠️ Warning**: Most flags require service restart.
+#### Fallback Flags
 
 ```bash
-# Update .env file
-echo "PERF_RETRIEVAL_TIMEOUT_MS=600" >> .env
+# Enable pgvector fallback
+PERF_PGVECTOR_ENABLED=true
+
+# Enable all fallback mechanisms
+PERF_FALLBACKS_ENABLED=true
+
+# Example: Disable fallbacks (Pinecone-only mode)
+export PERF_PGVECTOR_ENABLED=false
+export PERF_FALLBACKS_ENABLED=false
+```
+
+#### Reviewer Flags
+
+```bash
+# Enable answer reviewer
+PERF_REVIEWER_ENABLED=true
+
+# Reviewer time budget (milliseconds)
+PERF_REVIEWER_BUDGET_MS=500
+
+# Example: Disable reviewer during high load
+export PERF_REVIEWER_ENABLED=false
+```
+
+### Viewing Current Configuration
+
+```bash
+# Get all performance flags
+curl http://localhost:8000/debug/config | jq '.performance'
+
+# Example output:
+# {
+#   "flags": {
+#     "retrieval_parallel": true,
+#     "pgvector_enabled": true,
+#     "fallbacks_enabled": true,
+#     "reviewer_enabled": true
+#   },
+#   "budgets": {
+#     "retrieval_timeout_ms": 450,
+#     "graph_timeout_ms": 150,
+#     "reviewer_budget_ms": 500
+#   }
+# }
+```
+
+### Updating Configuration
+
+**Method 1: Environment Variables** (requires restart)
+
+```bash
+# In systemd service file or .env
+PERF_RETRIEVAL_TIMEOUT_MS=600
+PERF_REVIEWER_ENABLED=false
 
 # Restart service
-systemctl restart app
-# or
-supervisorctl restart app
-# or
-pkill -HUP python  # if using gunicorn
+sudo systemctl restart chatbot-api
+```
+
+**Method 2: Configuration File** (requires deployment)
+
+```yaml
+# config/production.yaml
+performance:
+  retrieval_timeout_ms: 600
+  reviewer_enabled: false
 ```
 
 ---
@@ -145,997 +186,854 @@ pkill -HUP python  # if using gunicorn
 
 ### Overview
 
-Circuit breakers prevent cascading failures by opening when error rates exceed thresholds.
+Circuit breakers prevent cascading failures by automatically stopping requests to failing services. They implement a three-state pattern: CLOSED (normal), OPEN (failing), HALF_OPEN (testing recovery).
 
-### Configuration
+### Circuit Breaker Configuration
 
-```bash
-# Enable circuit breaker
-CIRCUIT_BREAKER_ENABLED=true
-
-# Failure threshold
-CIRCUIT_BREAKER_FAILURE_THRESHOLD=5   # Consecutive failures to open
-
-# Reset timeout
-CIRCUIT_BREAKER_RESET_TIMEOUT=60      # Seconds before auto-reset
+```python
+# Default configuration
+CircuitBreakerConfig(
+    failure_threshold=5,        # Open after 5 consecutive failures
+    cooldown_seconds=60.0,      # Wait 60s before testing recovery
+    success_threshold=2         # Close after 2 consecutive successes
+)
 ```
 
-### Circuit Breaker States
+### Monitored Services
 
-| State | Meaning | Behavior |
-|-------|---------|----------|
-| **CLOSED** | Normal operation | All requests allowed |
-| **OPEN** | Circuit tripped | All requests fail fast |
-| **HALF-OPEN** | Testing recovery | Limited requests allowed |
+1. **Pinecone** (vector database)
+   - Failure: Query timeouts, connection errors
+   - Fallback: Pgvector
+   - Recovery: Automatic after cooldown
+
+2. **Reviewer LLM** (answer quality check)
+   - Failure: API errors, timeouts
+   - Fallback: Skip review (set `skipped=true`)
+   - Recovery: Automatic after cooldown
 
 ### Checking Circuit Breaker Status
 
 ```bash
-# Via metrics endpoint
-curl http://localhost:8000/metrics | grep circuit_breaker
+# Get circuit breaker metrics
+curl http://localhost:8000/debug/metrics | jq '.counters | 
+  with_entries(select(.key | contains("circuit")))'
 
-# Via logs
-grep "circuit_breaker" /var/log/app.log | tail -20
-
-# Via Python
-python3 << 'EOF'
-import sys
-sys.path.insert(0, '/workspace')
-from core.circuit import get_circuit_breaker
-
-breaker = get_circuit_breaker()
-stats = breaker.get_stats()
-print(f"State: {stats['state']}")
-print(f"Failures: {stats['failure_count']}")
-EOF
+# Example output:
+# {
+#   "circuit_opens": 3,
+#   "circuit_closes": 2,
+#   "circuit_opens_by_service": [
+#     {"labels": {"service": "pinecone"}, "value": 2},
+#     {"labels": {"service": "reviewer"}, "value": 1}
+#   ]
+# }
 ```
 
-### Manually Resetting Circuit Breaker
+### Circuit Breaker States
 
+**CLOSED** (Normal Operation)
 ```bash
-# Option 1: Restart service (circuit breaker resets)
-systemctl restart app
-
-# Option 2: Via API (if implemented)
-curl -X POST http://localhost:8000/admin/circuit-breaker/reset \
-  -H "X-API-Key: $ADMIN_API_KEY"
-
-# Option 3: Via Python
-python3 << 'EOF'
-import sys
-sys.path.insert(0, '/workspace')
-from core.circuit import get_circuit_breaker
-get_circuit_breaker().reset()
-print("Circuit breaker reset")
-EOF
+# All requests pass through
+# Failures are counted
+# Opens on reaching failure_threshold
 ```
 
----
-
-## Latency Budgets
-
-### Overview
-
-Latency budgets enforce p95 SLOs for critical operations.
-
-### Default Budgets
-
-| Operation | p95 Budget | Notes |
-|-----------|------------|-------|
-| Retrieval (dual-index) | 500ms | Pinecone + graph |
-| Graph expansion | 200ms | Entity traversal |
-| Context packing | 550ms | Prompt assembly |
-| Reviewer call | 500ms | When enabled |
-| Overall /chat | 1200ms | End-to-end |
-
-### Configuration
-
+**OPEN** (Failing)
 ```bash
-# Located in evals/latency.py
-# Or configure slack for flexibility:
-LATENCY_SLACK_PERCENT=10   # Allow 10% slack on budgets
+# All requests immediately fail
+# Fallback mechanisms activated
+# Transitions to HALF_OPEN after cooldown
 ```
 
-### Checking Latency Budgets
-
+**HALF_OPEN** (Testing Recovery)
 ```bash
-# Run latency gate checks
-cd /workspace
-python3 evals/latency.py --verbose
-
-# Expected output:
-# ✅ Retrieval (dual-index) p95: 450ms ≤ 500ms
-# ✅ Context packing p95: 500ms ≤ 550ms
-# ✅ Overall /chat p95: 1000ms ≤ 1200ms
+# One probe request allowed
+# Success → CLOSED (recovered)
+# Failure → OPEN (still failing)
 ```
 
-### When Budgets Are Breached
-
-See [Responding to Budget Breaches](#responding-to-budget-breaches) below.
-
----
-
-## Resource Limits
-
-### Overview
-
-Resource limits prevent DoS and resource exhaustion via per-user concurrency caps and queues.
-
-### Default Limits
-
-| Limit | Default | Description |
-|-------|---------|-------------|
-| Per-user concurrent | 3 | Max simultaneous requests per user |
-| Per-user queue | 10 | Max queued requests per user |
-| Global concurrent | 100 | System-wide concurrent requests |
-| Global queue | 500 | System-wide queue size |
-| Retry-After | 5s | Header value for 429 responses |
-
-### Configuration
+### Manual Circuit Breaker Operations
 
 ```bash
-# Resource limits
-LIMITS_ENABLED=true
-LIMITS_MAX_CONCURRENT_PER_USER=3
-LIMITS_MAX_QUEUE_SIZE_PER_USER=10
-LIMITS_MAX_CONCURRENT_GLOBAL=100
-LIMITS_MAX_QUEUE_SIZE_GLOBAL=500
-LIMITS_RETRY_AFTER_SECONDS=5
-LIMITS_QUEUE_TIMEOUT_SECONDS=30.0
-LIMITS_OVERLOAD_POLICY=drop_newest   # or drop_oldest, block
-```
+# Reset all circuit breakers (force CLOSED)
+curl -X POST http://localhost:8000/debug/circuit-breakers/reset
 
-### Checking Resource Usage
+# Reset specific circuit breaker
+curl -X POST http://localhost:8000/debug/circuit-breakers/reset/pinecone
 
-```bash
-# Via Python
-python3 << 'EOF'
-import sys
-sys.path.insert(0, '/workspace')
-from core.limits import get_limiter
-
-limiter = get_limiter()
-stats = limiter.get_stats()
-
-print(f"Global concurrent: {stats['global_concurrent']}/{stats['config']['max_concurrent_global']}")
-print(f"Global queue: {stats['global_queue_size']}/{stats['config']['max_queue_size_global']}")
-print(f"Active users: {stats['total_users']}")
-
-for user in stats['users'][:5]:  # Top 5 users
-    print(f"  {user['user_id']}: {user['concurrent']} concurrent, {user['queued']} queued")
-EOF
-```
-
-### Adjusting Limits Under Load
-
-```bash
-# Increase global limits (requires restart)
-echo "LIMITS_MAX_CONCURRENT_GLOBAL=200" >> .env
-echo "LIMITS_MAX_QUEUE_SIZE_GLOBAL=1000" >> .env
-systemctl restart app
-
-# Monitor impact
-watch -n 5 'curl -s http://localhost:8000/metrics | grep -E "(concurrent|queue)"'
+# Get circuit breaker stats
+curl http://localhost:8000/debug/circuit-breakers
 ```
 
 ---
 
-## Fallback Mechanisms
+## Fallback System
 
 ### Overview
 
-Fallbacks provide degraded service when primary systems fail.
+The fallback system provides graceful degradation when primary services fail. It operates transparently with automatic triggering and recovery.
 
-### pgvector Fallback (Primary Fallback)
+### Fallback Chain
 
-**When**: Pinecone is slow, down, or returning errors  
-**Fallback**: Use local pgvector for embeddings retrieval
+```
+Primary: Pinecone (fast, full k)
+    ↓ (on failure/timeout)
+Fallback: Pgvector (slower, reduced k)
+    ↓ (on failure)
+Error: 500 (graceful failure)
+```
 
-#### Enabling pgvector Fallback
+### Reduced k Values
+
+When fallback is active:
+- **Explicate**: 8 results (reduced from 16)
+- **Implicate**: 4 results (reduced from 8)
+- **Timeout**: 350ms (faster than primary)
+
+### Detecting Fallback Usage
 
 ```bash
-# Via environment variables
+# Check fallback rate
+curl http://localhost:8000/debug/metrics/summary | jq '.fallbacks'
+
+# Example output:
+# {
+#   "pgvector_fallback_rate": 0.15,  # 15% of requests
+#   "pgvector_fallbacks": 45
+# }
+```
+
+### Fallback Response Indicators
+
+```json
+{
+  "answer": "...",
+  "metrics": {
+    "retrieval_fallback": true,
+    "fallback_reason": "pinecone_timeout",
+    "fallback_used": true
+  }
+}
+```
+
+### Triggering Conditions
+
+1. **Circuit Breaker Open**
+   - Pinecone circuit breaker in OPEN state
+   - Automatic fallback to pgvector
+
+2. **Health Check Failure**
+   - Pinecone health check fails
+   - Cached for 30 seconds
+
+3. **Timeout**
+   - Pinecone query exceeds timeout
+   - Fallback triggered on next request
+
+### Manual Fallback Control
+
+```bash
+# Enable fallback system
 export PERF_PGVECTOR_ENABLED=true
 export PERF_FALLBACKS_ENABLED=true
 
-# Restart service
-systemctl restart app
+# Disable fallback (Pinecone-only mode)
+export PERF_PGVECTOR_ENABLED=false
+export PERF_FALLBACKS_ENABLED=false
+
+# Test fallback behavior
+curl -X POST http://localhost:8000/chat \
+  -H "X-Simulate-Pinecone-Failure: true" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "test", "session_id": "test123"}'
 ```
 
-#### Testing pgvector Fallback
+---
+
+## Metrics & Observability
+
+### Metrics Endpoints
 
 ```bash
-# Simulate Pinecone failure
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -H "X-Simulate-Pinecone-Failure: true" \
-  -d '{
-    "prompt": "What is machine learning?",
-    "session_id": "test_fallback_123"
+# Full metrics (all histograms, counters, gauges)
+curl http://localhost:8000/debug/metrics
+
+# Compact summary (key metrics only)
+curl http://localhost:8000/debug/metrics/summary
+
+# Health status with warnings
+curl http://localhost:8000/debug/health
+```
+
+### Understanding /debug/metrics
+
+#### Structure
+
+```json
+{
+  "timestamp": 1699123456.789,
+  "performance": {
+    "retrieval": {"p50": 420, "p95": 480, "p99": 550, "count": 1000},
+    "graph_expand": {"p50": 140, "p95": 170, "p99": 195, "count": 800},
+    "packing": {"p50": 190, "p95": 220, "p99": 245, "count": 1000},
+    "reviewer": {"p50": 490, "p95": 550, "p99": 580, "count": 600}
+  },
+  "counters": {
+    "pinecone_timeouts": 5,
+    "pgvector_fallbacks": 45,
+    "reviewer_skips": 12,
+    "circuit_opens": 2,
+    "circuit_closes": 1
+  },
+  "rates": {
+    "retrieval_error_rate": 0.02,  # 2%
+    "pgvector_fallback_rate": 0.15  # 15%
+  }
+}
+```
+
+#### Key Metrics Explained
+
+**Histograms** (latency in milliseconds)
+- `retrieval_ms`: Time to fetch context from vector DB
+- `graph_expand_ms`: Time to expand entity neighborhoods
+- `packing_ms`: Time to pack context into prompt
+- `reviewer_ms`: Time for answer quality review
+
+**Counters** (cumulative counts)
+- `pinecone_timeouts`: Pinecone query timeouts
+- `pgvector_fallbacks`: Fallback activations
+- `reviewer_skips`: Reviews skipped (timeout/circuit)
+- `circuit_opens`: Circuit breaker openings
+- `circuit_closes`: Circuit breaker recoveries
+
+**Rates** (0.0 - 1.0)
+- `retrieval_error_rate`: Failed retrievals / total
+- `pgvector_fallback_rate`: Fallback uses / total
+
+### Querying Metrics with jq
+
+```bash
+# Get all p95 latencies
+curl -s http://localhost:8000/debug/metrics/summary | jq '
+  {
+    retrieval_p95: .retrieval.p95,
+    graph_p95: .graph_expand.p95,
+    packing_p95: .packing.p95,
+    reviewer_p95: .reviewer.p95
   }'
 
-# Check response for fallback indicators
-# Response should have: "metrics": { "pgvector_fallback_used": true }
+# Check if any p95 exceeds SLO
+curl -s http://localhost:8000/debug/metrics/summary | jq '
+  {
+    retrieval_ok: (.retrieval.p95 <= 500),
+    packing_ok: (.packing.p95 <= 550),
+    reviewer_ok: (.reviewer.p95 <= 500)
+  }'
+
+# Get failure indicators
+curl -s http://localhost:8000/debug/metrics/summary | jq '
+  .counters + .fallbacks + .errors'
+
+# Count open circuits
+curl -s http://localhost:8000/debug/metrics/summary | jq '
+  .circuit_breakers.opens - .circuit_breakers.closes'
 ```
 
-#### Checking Fallback Usage
+### Metrics in Monitoring Systems
 
-```bash
-# Via metrics
-curl http://localhost:8000/metrics | grep fallback
+**Prometheus** (if integrated)
+```promql
+# p95 retrieval latency
+histogram_quantile(0.95, retrieval_ms_bucket)
 
-# Via smoke test tool
-python3 tools/load_smoke.py --pinecone-down --requests 20
+# Fallback rate over 5 minutes
+rate(pgvector_fallbacks[5m]) / rate(retrieval_total[5m])
 
-# Expected: High fallback rate but low error rate
+# Circuit breaker status (open circuits)
+circuit_opens - circuit_closes
 ```
 
-### External Sources Fallback
-
-**When**: Internal retrieval insufficient  
-**Fallback**: Query external sources (if enabled)
-
-```bash
-# Enable external fallback
-FACTARE_ENABLED=true
-FACTARE_ALLOW_EXTERNAL=true
-FACTARE_EXTERNAL_TIMEOUT_MS=2000
-
-# Restart service
-systemctl restart app
+**Datadog** (if integrated)
 ```
-
-### Reviewer Fallback
-
-**When**: Reviewer times out or fails  
-**Fallback**: Skip review, proceed with answer
-
-```bash
-# Enable reviewer with timeout
-PERF_REVIEWER_ENABLED=true
-PERF_REVIEWER_BUDGET_MS=500
-
-# If reviewer fails, answer still returned (without review)
+# Dashboard queries
+avg:retrieval_ms.p95{env:prod}
+sum:pgvector_fallbacks{env:prod}.as_rate()
+circuit_opens{env:prod} - circuit_closes{env:prod}
 ```
 
 ---
 
-## Checking Metrics
+## Performance SLOs
 
-### p95 Latency
+### Service Level Objectives
 
-#### Method 1: Via Latency Gate Script
+| Component | Metric | SLO | Warning | Critical |
+|-----------|--------|-----|---------|----------|
+| Retrieval | p95 latency | ≤ 500ms | > 500ms | > 600ms |
+| Graph Expand | p95 latency | ≤ 200ms | > 200ms | > 250ms |
+| Packing | p95 latency | ≤ 550ms | > 550ms | > 650ms |
+| Reviewer | p95 latency | ≤ 500ms | > 500ms | > 600ms |
+| Overall /chat | p95 latency | ≤ 1200ms | > 1200ms | > 1500ms |
+| Availability | Success rate | ≥ 99% | < 99% | < 95% |
+| Fallback | Usage rate | ≤ 30% | > 30% | > 50% |
+
+### Checking SLO Compliance
 
 ```bash
-cd /workspace
-python3 evals/latency.py --verbose
+# Run latency gate checks
+python evals/latency.py --verbose
 
 # Output:
+# ================================================================================
+# LATENCY GATE RESULTS
+# ================================================================================
 # ✅ Retrieval (dual-index) p95: 450.0ms ≤ 500.0ms (budget: 500ms, count: 100)
-# ✅ Context packing p95: 500.0ms ≤ 550.0ms (budget: 550ms, count: 100)
-# ✅ Overall /chat p95: 1000.0ms ≤ 1200.0ms (budget: 1200ms, count: 50)
+# ✅ Context packing p95: 520.0ms ≤ 550.0ms (budget: 550ms, count: 100)
+# ✅ Reviewer call p95: 480.0ms ≤ 500.0ms (budget: 500ms, count: 60)
+# 
+# Summary: 3/3 gates passed
+# ✅ All gates passed
 ```
 
-#### Method 2: Via Python
+### SLO Violation Response
 
-```python
-import sys
-sys.path.insert(0, '/workspace')
-from core.metrics import get_histogram_stats
+**Level 1: Warning** (SLO exceeded but below critical)
+1. Monitor for trend
+2. Review recent changes
+3. Check resource utilization
+4. No immediate action required
 
-stats = get_histogram_stats("chat_total_ms")
-print(f"p50: {stats['p50']:.2f}ms")
-print(f"p95: {stats['p95']:.2f}ms")
-print(f"p99: {stats['p99']:.2f}ms")
-print(f"Count: {stats['count']}")
-```
+**Level 2: Critical** (Above critical threshold)
+1. Page on-call engineer
+2. Check circuit breaker status
+3. Review error logs
+4. Consider scaling resources
+5. Enable fallback if not already active
 
-#### Method 3: Via Smoke Test
+### SLO Reporting
 
 ```bash
-# Run smoke test to generate metrics
-python3 tools/load_smoke.py --requests 50 --concurrency 10
+# Generate SLO report
+curl -s http://localhost:8000/debug/metrics/summary | python3 << 'EOF'
+import sys, json
+data = json.load(sys.stdin)
 
-# Output includes:
-# Latency (successful requests):
-#   p50: 725.34ms
-#   p95: 1423.56ms
-#   p99: 1987.23ms
-```
+print("SLO Compliance Report")
+print("=" * 50)
 
-### Success Rate
+checks = [
+    ("Retrieval p95", data["retrieval"]["p95"], 500),
+    ("Packing p95", data["packing"]["p95"], 550),
+    ("Reviewer p95", data["reviewer"]["p95"], 500),
+]
 
-```bash
-# Via smoke test
-python3 tools/load_smoke.py --requests 50 | grep "Success Rates"
+for name, actual, slo in checks:
+    status = "✅" if actual <= slo else "❌"
+    print(f"{status} {name}: {actual:.0f}ms / {slo}ms")
 
-# Output:
-# Success Rates:
-#   Successful: 49/50 (98.0%)
-#   Failed: 1/50 (2.0%)
-```
-
-### Fallback Rate
-
-```bash
-# Via smoke test
-python3 tools/load_smoke.py --requests 50 | grep "Fallbacks"
-
-# Output:
-#   Fallbacks: 8/50 (16.0%)
-```
-
-### Throughput
-
-```bash
-# Via smoke test
-python3 tools/load_smoke.py --requests 50 | grep "Throughput"
-
-# Output:
-# Throughput:
-#   Requests: 50
-#   Duration: 8.23s
-#   Throughput: 6.08 req/s
+print()
+print(f"Error Rate: {data['errors']['retrieval_error_rate']*100:.1f}%")
+print(f"Fallback Rate: {data['fallbacks']['pgvector_fallback_rate']*100:.1f}%")
+EOF
 ```
 
 ---
 
-## Responding to Budget Breaches
+## Load Testing
 
-### Latency Budget Breach
+### Smoke Load Tool
 
-**Symptom**: p95 latency exceeds budget (e.g., 1800ms > 1500ms)
+The smoke load tool exercises the critical /chat path with parallel requests and validates performance budgets.
 
-**Investigation Steps**:
-
-1. **Check recent changes**
-   ```bash
-   git log --oneline --since="24 hours ago"
-   # Review for performance-impacting changes
-   ```
-
-2. **Check external dependencies**
-   ```bash
-   # Test Pinecone latency
-   curl -X POST https://api.pinecone.io/... -w "\nTime: %{time_total}s\n"
-   
-   # Test database
-   psql -c "SELECT pg_sleep(0); SELECT now();"  # Should be instant
-   ```
-
-3. **Check system resources**
-   ```bash
-   # CPU usage
-   top -bn1 | head -20
-   
-   # Memory usage
-   free -h
-   
-   # Disk I/O
-   iostat -x 1 5
-   ```
-
-4. **Profile slow operations**
-   ```bash
-   # Run with profiling
-   python3 -m cProfile -s cumtime app.py > profile.txt
-   
-   # Analyze hot paths
-   grep -E "(chat|retrieval|packing)" profile.txt | head -20
-   ```
-
-**Remediation**:
-
-- **Immediate**: Increase slack temporarily
-  ```bash
-  export LATENCY_SLACK_PERCENT=20
-  systemctl restart app
-  ```
-
-- **Short-term**: Increase timeouts
-  ```bash
-  export PERF_RETRIEVAL_TIMEOUT_MS=600
-  export PERF_GRAPH_TIMEOUT_MS=200
-  systemctl restart app
-  ```
-
-- **Long-term**: Optimize hot paths, add caching, scale infrastructure
-
-### Resource Limit Breach
-
-**Symptom**: High 429 rate, users reporting "too many requests"
-
-**Investigation Steps**:
-
-1. **Check current limits**
-   ```bash
-   python3 << 'EOF'
-   import sys
-   sys.path.insert(0, '/workspace')
-   from core.limits import get_limiter
-   stats = get_limiter().get_stats()
-   print(f"Global: {stats['global_concurrent']}/{stats['config']['max_concurrent_global']}")
-   print(f"Queue: {stats['global_queue_size']}/{stats['config']['max_queue_size_global']}")
-   EOF
-   ```
-
-2. **Identify heavy users**
-   ```bash
-   python3 << 'EOF'
-   import sys
-   sys.path.insert(0, '/workspace')
-   from core.limits import get_limiter
-   stats = get_limiter().get_stats()
-   for user in sorted(stats['users'], key=lambda u: u['concurrent'] + u['queued'], reverse=True)[:10]:
-       print(f"{user['user_id']}: {user['concurrent']} concurrent, {user['queued']} queued")
-   EOF
-   ```
-
-3. **Check for attack/abuse**
-   ```bash
-   # Check request patterns
-   grep "429" /var/log/app.log | cut -d' ' -f4 | sort | uniq -c | sort -rn | head -10
-   ```
-
-**Remediation**:
-
-- **Immediate**: Increase limits
-  ```bash
-  export LIMITS_MAX_CONCURRENT_GLOBAL=200
-  export LIMITS_MAX_QUEUE_SIZE_GLOBAL=1000
-  systemctl restart app
-  ```
-
-- **Short-term**: Rate limit specific users
-  ```bash
-  # Add to rate limit configuration
-  # Or block via API key
-  ```
-
-- **Long-term**: Scale horizontally, implement distributed rate limiting
-
-### Fallback Rate High
-
-**Symptom**: >30% of requests using fallback
-
-**Investigation Steps**:
-
-1. **Check Pinecone health**
-   ```bash
-   # Test Pinecone directly
-   curl -X POST https://your-index.svc.pinecone.io/query \
-     -H "Api-Key: $PINECONE_API_KEY" \
-     -H "Content-Type: application/json" \
-     -d '{"vector": [0.1, 0.2, ..., 0.512], "topK": 10}'
-   
-   # Check latency
-   time curl ...
-   ```
-
-2. **Check fallback metrics**
-   ```bash
-   python3 tools/load_smoke.py --requests 50 | grep Fallbacks
-   ```
-
-**Remediation**:
-
-- **Immediate**: Ensure fallback is working
-  ```bash
-  export PERF_PGVECTOR_ENABLED=true
-  export PERF_FALLBACKS_ENABLED=true
-  ```
-
-- **Investigate**: Contact Pinecone support, check API status
-- **Long-term**: Optimize Pinecone index, consider caching
-
-### Error Rate High
-
-**Symptom**: >5% error rate
-
-**Investigation Steps**:
-
-1. **Check error types**
-   ```bash
-   grep "ERROR" /var/log/app.log | tail -50
-   
-   # Group by error type
-   grep "ERROR" /var/log/app.log | cut -d':' -f3 | sort | uniq -c | sort -rn
-   ```
-
-2. **Check recent deployments**
-   ```bash
-   git log --oneline --since="1 hour ago"
-   ```
-
-3. **Run smoke test**
-   ```bash
-   python3 tools/load_smoke.py --requests 20 --budget-error 0.1
-   ```
-
-**Remediation**:
-
-- **Immediate**: Rollback if recent deployment
-  ```bash
-  git revert HEAD
-  git push
-  deploy
-  ```
-
-- **Investigation**: Analyze error logs, check dependencies
-- **Long-term**: Add retry logic, improve error handling
-
----
-
-## Common Operations
-
-### Operation 1: Enable pgvector Fallback
+#### Basic Usage
 
 ```bash
-# 1. Update configuration
-echo "PERF_PGVECTOR_ENABLED=true" >> .env
-echo "PERF_FALLBACKS_ENABLED=true" >> .env
+# Quick smoke test (50 requests, 10 concurrent)
+python tools/load_smoke.py
 
-# 2. Restart service
-systemctl restart app
+# Custom load
+python tools/load_smoke.py --requests 100 --concurrency 20
 
-# 3. Verify fallback works
-python3 tools/load_smoke.py --pinecone-down --requests 10
-
-# 4. Check metrics
-curl http://localhost:8000/metrics | grep fallback
+# Against staging
+python tools/load_smoke.py --url https://staging-api.example.com
 ```
 
-### Operation 2: Increase Latency Budgets
+#### Testing Scenarios
 
+**Scenario 1: Normal Load**
 ```bash
-# 1. Add slack (temporary)
-export LATENCY_SLACK_PERCENT=10
-
-# 2. Or update budgets in evals/latency.py (permanent)
-# Edit DEFAULT_BUDGETS, change p95_budget_ms values
-
-# 3. Verify
-python3 evals/latency.py --slack 10
+python tools/load_smoke.py \
+  --requests 50 \
+  --concurrency 10 \
+  --budget-p95 1500
 ```
 
-### Operation 3: Scale Up Resource Limits
-
+**Scenario 2: High Load**
 ```bash
-# 1. Update limits
-cat >> .env << EOF
-LIMITS_MAX_CONCURRENT_GLOBAL=200
-LIMITS_MAX_QUEUE_SIZE_GLOBAL=1000
-LIMITS_MAX_CONCURRENT_PER_USER=5
-EOF
-
-# 2. Restart
-systemctl restart app
-
-# 3. Monitor
-watch -n 5 'python3 -c "
-import sys
-sys.path.insert(0, \"/workspace\")
-from core.limits import get_limiter
-stats = get_limiter().get_stats()
-print(f\"Concurrent: {stats[\"global_concurrent\"]}/{stats[\"config\"][\"max_concurrent_global\"]}\")
-print(f\"Queue: {stats[\"global_queue_size\"]}/{stats[\"config\"][\"max_queue_size_global\"]}\")
-"'
+python tools/load_smoke.py \
+  --requests 200 \
+  --concurrency 50 \
+  --budget-p95 2000 \
+  --budget-error 0.1
 ```
 
-### Operation 4: Run Performance Smoke Test
-
+**Scenario 3: Fallback Path**
 ```bash
-# 1. Basic smoke test
-python3 tools/load_smoke.py --requests 50 --concurrency 10
-
-# 2. With Pinecone failure simulation
-python3 tools/load_smoke.py --pinecone-down --requests 20
-
-# 3. Strict budgets (pre-deploy validation)
-python3 tools/load_smoke.py \
-  --budget-p50 600 \
-  --budget-p95 1200 \
-  --budget-error 0.02 \
-  --requests 100
-
-# 4. Save results
-python3 tools/load_smoke.py --json --output smoke_$(date +%Y%m%d_%H%M).json
+python tools/load_smoke.py \
+  --requests 50 \
+  --pinecone-down \
+  --budget-p95 2000
 ```
 
-### Operation 5: Check All Metrics
+**Scenario 4: Stress Test**
+```bash
+python tools/load_smoke.py \
+  --requests 500 \
+  --concurrency 100 \
+  --timeout 10.0
+```
+
+#### Interpreting Results
+
+```
+================================================================================
+METRICS
+================================================================================
+
+Throughput:
+  Requests: 50
+  Duration: 12.45s
+  Throughput: 4.02 req/s        # ← Requests per second
+
+Success Rates:
+  Successful: 49/50 (98.0%)     # ← Should be ≥95%
+  Failed: 1/50 (2.0%)            # ← Should be ≤5%
+  Fallbacks: 3/50 (6.0%)         # ← Should be ≤30% (normal mode)
+
+Latency (successful requests):
+  p50: 720.45ms                  # ← Should be ≤800ms
+  p95: 1350.23ms                 # ← Should be ≤1500ms
+  p99: 1480.67ms                 # ← Should be ≤2500ms
+```
+
+**Good Results**:
+- Success rate ≥ 95%
+- p95 ≤ 1500ms
+- Fallback rate ≤ 30%
+- Throughput ≥ 3 req/s
+
+**Concerning Results**:
+- Success rate < 95%
+- p95 > 1500ms
+- Fallback rate > 50%
+- Throughput < 2 req/s
+
+#### CI Integration
 
 ```bash
-# Run comprehensive check script
-cat > check_all_metrics.sh << 'EOF'
-#!/bin/bash
-echo "=== Latency Budgets ==="
-python3 evals/latency.py --verbose
+# In CI pipeline
+python tools/load_smoke.py \
+  --requests 100 \
+  --concurrency 20 \
+  --budget-p95 1500 \
+  --budget-error 0.05
 
-echo -e "\n=== Resource Limits ==="
-python3 << 'PYEOF'
-import sys
-sys.path.insert(0, '/workspace')
-from core.limits import get_limiter
-stats = get_limiter().get_stats()
-print(f"Global concurrent: {stats['global_concurrent']}/{stats['config']['max_concurrent_global']}")
-print(f"Global queue: {stats['global_queue_size']}/{stats['config']['max_queue_size_global']}")
-print(f"Active users: {stats['total_users']}")
-PYEOF
-
-echo -e "\n=== Smoke Test ==="
-python3 tools/load_smoke.py --requests 20 --concurrency 5
-EOF
-
-chmod +x check_all_metrics.sh
-./check_all_metrics.sh
+# Exit code 0 = pass, 1 = fail
+if [ $? -ne 0 ]; then
+  echo "Load test failed - budgets exceeded"
+  exit 1
+fi
 ```
 
 ---
 
 ## Troubleshooting
 
-### Issue: All requests timing out
+### High Latency
 
-**Symptoms**:
-- High latency (>10s)
-- Timeout errors in logs
-- 408 status codes
+**Symptom**: p95 latency exceeding SLO
 
 **Diagnosis**:
 ```bash
-# Check if service is running
-ps aux | grep python
+# Check component breakdown
+curl -s http://localhost:8000/debug/metrics/summary | jq '
+  .retrieval.p95, .graph_expand.p95, .packing.p95, .reviewer.p95'
 
-# Check if port is listening
-netstat -tulpn | grep 8000
-
-# Test basic health
-curl http://localhost:8000/healthz
+# Identify slowest component
+# If retrieval: Check Pinecone, consider fallback
+# If packing: Reduce context size
+# If reviewer: Consider disabling
 ```
 
 **Resolution**:
-1. Restart service: `systemctl restart app`
-2. Check logs: `tail -100 /var/log/app.log`
-3. Check resources: `top`, `free -h`, `df -h`
-4. Scale up if needed
+1. Check circuit breaker status
+2. Review recent code changes
+3. Check external service health
+4. Scale resources if needed
+5. Enable fallback mechanisms
 
-### Issue: High 429 rate
+### High Error Rate
 
-**Symptoms**:
-- Users seeing "too many requests"
-- Queue full messages in logs
+**Symptom**: Error rate > 5%
 
 **Diagnosis**:
 ```bash
-# Check resource limits
-python3 << 'EOF'
-import sys
-sys.path.insert(0, '/workspace')
-from core.limits import get_limiter
-print(get_limiter().get_stats())
-EOF
+# Check error breakdown
+curl -s http://localhost:8000/debug/metrics | jq '.counters | 
+  with_entries(select(.key | contains("error") or contains("timeout")))'
+
+# Check logs for error patterns
+tail -f /var/log/chatbot-api/error.log | grep -i error
 ```
 
 **Resolution**:
-1. Increase limits (see [Operation 3](#operation-3-scale-up-resource-limits))
-2. Identify heavy users
-3. Add per-user rate limiting if abuse detected
+1. Identify error source (retrieval, LLM, database)
+2. Check circuit breakers
+3. Verify service dependencies
+4. Review error logs
+5. Scale or restart affected services
 
-### Issue: Pinecone fallback not working
+### High Fallback Rate
 
-**Symptoms**:
-- High error rate when Pinecone down
-- Fallback rate at 0%
+**Symptom**: Fallback rate > 30% (non-outage)
 
 **Diagnosis**:
 ```bash
-# Check fallback flags
-python3 << 'EOF'
-from config import load_config
-cfg = load_config()
-print(f"PGVector enabled: {cfg.get('PERF_PGVECTOR_ENABLED')}")
-print(f"Fallbacks enabled: {cfg.get('PERF_FALLBACKS_ENABLED')}")
-EOF
+# Check Pinecone health
+curl http://localhost:8000/debug/health
+
+# Check fallback reasons
+curl -s http://localhost:8000/debug/metrics | jq '
+  .counters.pgvector_fallbacks_by_reason'
 ```
 
 **Resolution**:
-1. Enable flags: `PERF_PGVECTOR_ENABLED=true PERF_FALLBACKS_ENABLED=true`
-2. Restart service
-3. Test: `python3 tools/load_smoke.py --pinecone-down`
+1. Check Pinecone service status
+2. Review Pinecone timeouts
+3. Check network connectivity
+4. Verify API keys/credentials
+5. Contact Pinecone support if persistent
 
-### Issue: Latency budgets failing in CI
+### Circuit Breaker Stuck Open
 
-**Symptoms**:
-- CI failing on latency gate checks
-- `python3 evals/latency.py` exits with code 1
+**Symptom**: Circuit breaker not recovering
 
 **Diagnosis**:
 ```bash
-# Run locally to see actual performance
-python3 evals/latency.py --verbose
+# Check circuit breaker stats
+curl http://localhost:8000/debug/circuit-breakers | jq '
+  .[] | select(.state == "OPEN")'
 
-# Check if CI environment is slower
-# Run smoke test
-python3 tools/load_smoke.py --requests 50
+# Check last failure time
+curl http://localhost:8000/debug/circuit-breakers | jq '
+  .[] | {service: .service, state: .state, last_failure: .last_failure_time}'
 ```
 
 **Resolution**:
-1. **If CI is consistently slower**: Add slack for CI
+1. Verify underlying service is healthy
+2. Check failure threshold configuration
+3. Wait for cooldown period (default: 60s)
+4. Manually reset if needed:
    ```bash
-   LATENCY_SLACK_PERCENT=10 python3 evals/latency.py
+   curl -X POST http://localhost:8000/debug/circuit-breakers/reset/pinecone
    ```
-2. **If performance degraded**: Investigate and fix
-3. **If budgets unrealistic**: Update budgets in `evals/latency.py`
+
+### Rate Limiting (429 Errors)
+
+**Symptom**: Requests receiving 429 Too Many Requests
+
+**Diagnosis**:
+```bash
+# Check limiter stats
+curl http://localhost:8000/debug/limits | jq
+
+# Check user queue status
+curl -s http://localhost:8000/debug/limits | jq '.users[] | 
+  select(.queued > 0 or .concurrent > 2)'
+```
+
+**Resolution**:
+1. Identify high-volume users
+2. Check if legitimate traffic spike
+3. Increase concurrency limits if needed:
+   ```bash
+   export LIMITS_MAX_CONCURRENT_PER_USER=5
+   export LIMITS_MAX_CONCURRENT_GLOBAL=200
+   ```
+4. Review rate limit policy
+5. Contact users if abuse suspected
 
 ---
 
-## Dashboards and Monitoring
+## Runbook Procedures
 
-### Metrics to Monitor
+### Procedure 1: Pinecone Outage
 
-| Metric | Threshold | Alert Level |
-|--------|-----------|-------------|
-| p95 latency | >1500ms | Warning |
-| p95 latency | >2000ms | Critical |
-| Error rate | >5% | Warning |
-| Error rate | >10% | Critical |
-| Fallback rate | >30% | Warning |
-| Fallback rate | >50% | Critical |
-| 429 rate | >5% | Warning |
-| Queue depth | >80% full | Warning |
-| Queue depth | >95% full | Critical |
+**Situation**: Pinecone is completely down
 
-### Prometheus Queries
+**Steps**:
+1. Verify outage:
+   ```bash
+   curl http://localhost:8000/debug/health | jq '.services.pinecone'
+   ```
 
-```promql
-# p95 latency
-histogram_quantile(0.95, rate(chat_latency_ms_bucket[5m]))
+2. Enable fallback mode:
+   ```bash
+   export PERF_PGVECTOR_ENABLED=true
+   export PERF_FALLBACKS_ENABLED=true
+   sudo systemctl restart chatbot-api
+   ```
 
-# Error rate
-rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])
+3. Verify fallback working:
+   ```bash
+   python tools/load_smoke.py --requests 20 --budget-p95 2000
+   ```
 
-# Fallback rate
-rate(pgvector_fallback_total[5m]) / rate(retrieval_total[5m])
+4. Monitor fallback rate:
+   ```bash
+   watch -n 5 'curl -s http://localhost:8000/debug/metrics/summary | 
+     jq ".fallbacks"'
+   ```
 
-# 429 rate
-rate(http_requests_total{status="429"}[5m]) / rate(http_requests_total[5m])
+5. When Pinecone recovers:
+   ```bash
+   # Circuit breaker will auto-recover
+   # Or manually reset:
+   curl -X POST http://localhost:8000/debug/circuit-breakers/reset/pinecone
+   ```
 
-# Queue depth
-resource_limit_queue_size / resource_limit_queue_max
-```
+### Procedure 2: High Latency Incident
 
-### Grafana Dashboard Panels
+**Situation**: p95 latency > 1500ms
 
-**Panel 1: Latency Over Time**
-- Metric: `chat_latency_ms`
-- Visualization: Graph
-- Queries: p50, p95, p99
-- Alert: p95 > 1500ms
+**Steps**:
+1. Identify slow component:
+   ```bash
+   curl -s http://localhost:8000/debug/metrics/summary | jq '
+     {retrieval:.retrieval.p95, graph:.graph_expand.p95, 
+      packing:.packing.p95, reviewer:.reviewer.p95}'
+   ```
 
-**Panel 2: Success/Error Rates**
-- Metric: `http_requests_total`
-- Visualization: Stacked graph
-- Queries: 2xx, 4xx, 5xx rates
-- Alert: 5xx > 5%
+2. If retrieval slow:
+   ```bash
+   # Check Pinecone
+   # Enable fallback if needed
+   export PERF_PGVECTOR_ENABLED=true
+   ```
 
-**Panel 3: Fallback Usage**
-- Metric: `pgvector_fallback_total`
-- Visualization: Graph
-- Alert: Fallback rate > 30%
+3. If reviewer slow:
+   ```bash
+   # Disable reviewer temporarily
+   export PERF_REVIEWER_ENABLED=false
+   sudo systemctl reload chatbot-api
+   ```
 
-**Panel 4: Resource Limits**
-- Metrics: `concurrent_requests`, `queue_size`
-- Visualization: Gauge
-- Alert: >80% capacity
+4. If graph expand slow:
+   ```bash
+   # Reduce graph limits
+   export PERF_GRAPH_TIMEOUT_MS=100
+   export LIMITS_GRAPH_MAX_NEIGHBORS=30
+   ```
 
-**Panel 5: Circuit Breaker**
-- Metric: `circuit_breaker_state`
-- Visualization: Stat
-- States: CLOSED (green), OPEN (red), HALF_OPEN (yellow)
+5. Verify improvement:
+   ```bash
+   python tools/load_smoke.py --requests 50
+   ```
 
-### Logging
+### Procedure 3: Load Spike Response
 
-**Important log patterns**:
+**Situation**: Sudden traffic spike causing degradation
 
-```bash
-# Circuit breaker events
-grep "circuit_breaker" /var/log/app.log
+**Steps**:
+1. Check current load:
+   ```bash
+   curl http://localhost:8000/debug/limits | jq '
+     {global_concurrent, global_queue_size, total_users}'
+   ```
 
-# Fallback usage
-grep "fallback" /var/log/app.log
+2. Increase limits temporarily:
+   ```bash
+   export LIMITS_MAX_CONCURRENT_GLOBAL=200
+   export LIMITS_MAX_CONCURRENT_PER_USER=5
+   sudo systemctl reload chatbot-api
+   ```
 
-# 429 responses
-grep "429" /var/log/app.log
+3. Disable non-critical features:
+   ```bash
+   export PERF_REVIEWER_ENABLED=false
+   ```
 
-# Latency budget breaches
-grep "budget.*exceeded" /var/log/app.log
+4. Monitor queue drain:
+   ```bash
+   watch -n 2 'curl -s http://localhost:8000/debug/limits | 
+     jq ".global_queue_size"'
+   ```
 
-# Errors
-grep "ERROR" /var/log/app.log
-```
+5. Scale horizontally if needed:
+   ```bash
+   # AWS Auto Scaling
+   aws autoscaling set-desired-capacity \
+     --auto-scaling-group-name chatbot-api-asg \
+     --desired-capacity 10
+   ```
 
-### Alerting Rules
+### Procedure 4: Circuit Breaker Recovery
 
-```yaml
-# Prometheus alerting rules
-groups:
-  - name: performance
-    rules:
-      - alert: HighLatency
-        expr: histogram_quantile(0.95, rate(chat_latency_ms_bucket[5m])) > 1500
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High p95 latency detected"
-          description: "p95 latency is {{ $value }}ms (threshold: 1500ms)"
-      
-      - alert: HighErrorRate
-        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High error rate detected"
-          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
-      
-      - alert: HighFallbackRate
-        expr: rate(pgvector_fallback_total[5m]) / rate(retrieval_total[5m]) > 0.30
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High fallback usage"
-          description: "Fallback rate is {{ $value | humanizePercentage }} (threshold: 30%)"
-      
-      - alert: ResourceLimitReached
-        expr: resource_limit_queue_size / resource_limit_queue_max > 0.80
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Resource queue filling up"
-          description: "Queue is {{ $value | humanizePercentage }} full"
-      
-      - alert: CircuitBreakerOpen
-        expr: circuit_breaker_state == 2  # OPEN state
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Circuit breaker is open"
-          description: "Service degraded - circuit breaker protecting system"
-```
+**Situation**: Multiple circuit breakers open
+
+**Steps**:
+1. Check all circuit breakers:
+   ```bash
+   curl http://localhost:8000/debug/circuit-breakers | jq '
+     .[] | select(.state == "OPEN" or .state == "HALF_OPEN")'
+   ```
+
+2. Verify underlying services:
+   ```bash
+   # Pinecone
+   curl -H "Api-Key: $PINECONE_API_KEY" \
+     https://api.pinecone.io/databases
+   
+   # Reviewer LLM
+   curl -H "Authorization: Bearer $OPENAI_API_KEY" \
+     https://api.openai.com/v1/models
+   ```
+
+3. Wait for auto-recovery (60s default)
+   ```bash
+   sleep 60
+   curl http://localhost:8000/debug/circuit-breakers
+   ```
+
+4. Manual reset if auto-recovery fails:
+   ```bash
+   curl -X POST http://localhost:8000/debug/circuit-breakers/reset
+   ```
+
+5. Verify system health:
+   ```bash
+   python tools/load_smoke.py --requests 50
+   ```
 
 ---
 
-## Appendix: Configuration Reference
+## Appendix
 
-### Environment Variables Summary
+### Environment Variables Reference
 
 ```bash
-# Performance Flags
+# Performance
 PERF_RETRIEVAL_PARALLEL=true
 PERF_RETRIEVAL_TIMEOUT_MS=450
 PERF_GRAPH_TIMEOUT_MS=150
-PERF_COMPARE_TIMEOUT_MS=400
-PERF_REVIEWER_ENABLED=true
-PERF_REVIEWER_BUDGET_MS=500
 PERF_PGVECTOR_ENABLED=true
 PERF_FALLBACKS_ENABLED=true
+PERF_REVIEWER_ENABLED=true
+PERF_REVIEWER_BUDGET_MS=500
 
-# Resource Limits
-LIMITS_ENABLED=true
+# Limits
 LIMITS_MAX_CONCURRENT_PER_USER=3
 LIMITS_MAX_QUEUE_SIZE_PER_USER=10
 LIMITS_MAX_CONCURRENT_GLOBAL=100
 LIMITS_MAX_QUEUE_SIZE_GLOBAL=500
 LIMITS_RETRY_AFTER_SECONDS=5
-LIMITS_QUEUE_TIMEOUT_SECONDS=30.0
-LIMITS_OVERLOAD_POLICY=drop_newest
-
-# Latency Budgets
-LATENCY_SLACK_PERCENT=0  # 0 for strict, 10 for ±10% slack
 
 # Circuit Breakers
-CIRCUIT_BREAKER_ENABLED=true
 CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
-CIRCUIT_BREAKER_RESET_TIMEOUT=60
+CIRCUIT_BREAKER_COOLDOWN_SECONDS=60
+CIRCUIT_BREAKER_SUCCESS_THRESHOLD=2
 
-# External Sources
-FACTARE_ENABLED=false
-FACTARE_ALLOW_EXTERNAL=false
-FACTARE_EXTERNAL_TIMEOUT_MS=2000
+# Cache
+CACHE_EMBEDDING_TTL=120
+CACHE_SELECTION_TTL=60
 ```
 
-### Curl Examples
+### Useful curl Commands
 
 ```bash
-# Health check
-curl http://localhost:8000/healthz
+# Health check with pretty output
+curl -s http://localhost:8000/debug/health | jq '
+  {status, warnings, metrics_summary}'
 
-# Chat request
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $API_KEY" \
-  -d '{
-    "prompt": "What is machine learning?",
-    "session_id": "test_123"
+# Get all p95 latencies
+curl -s http://localhost:8000/debug/metrics/summary | jq '
+  to_entries | 
+  map(select(.key | test("p95"))) | 
+  from_entries'
+
+# Check for any alerts
+curl -s http://localhost:8000/debug/metrics/summary | jq '
+  {
+    high_error_rate: (.errors.retrieval_error_rate > 0.05),
+    high_fallback_rate: (.fallbacks.pgvector_fallback_rate > 0.3),
+    open_circuits: ((.circuit_breakers.opens - .circuit_breakers.closes) > 0)
   }'
 
-# Chat with debug
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $API_KEY" \
-  -d '{
-    "prompt": "Explain neural networks",
-    "session_id": "test_123",
-    "debug": true
-  }' | jq '.metrics'
+# Monitor metrics in real-time
+watch -n 5 'curl -s http://localhost:8000/debug/metrics/summary | 
+  jq "{retrieval_p95:.retrieval.p95, error_rate:.errors.retrieval_error_rate}"'
+```
 
-# Simulate Pinecone failure
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -H "X-Simulate-Pinecone-Failure: true" \
-  -d '{
-    "prompt": "Test fallback",
-    "session_id": "test_fallback"
-  }' | jq '.metrics.pgvector_fallback_used'
+### Monitoring Queries
 
-# Check metrics
-curl http://localhost:8000/metrics
+**CloudWatch Logs Insights**
+```sql
+-- Count errors by type
+fields @timestamp, error_type, error_message
+| filter @message like /ERROR/
+| stats count() by error_type
+| sort count desc
 
-# Check config
-curl http://localhost:8000/debug/config | jq '.PERF_*'
+-- p95 latency over time
+fields @timestamp, latency_ms
+| filter endpoint = "/chat"
+| stats percentile(latency_ms, 95) as p95 by bin(5m)
+```
+
+**Grafana Dashboard**
+```
+Panel 1: p95 Latencies (Time Series)
+- retrieval_ms{quantile="0.95"}
+- packing_ms{quantile="0.95"}
+- reviewer_ms{quantile="0.95"}
+
+Panel 2: Error & Fallback Rates (Gauge)
+- rate(errors_total[5m]) / rate(requests_total[5m])
+- rate(pgvector_fallbacks[5m]) / rate(retrieval_total[5m])
+
+Panel 3: Circuit Breaker Status (Stat)
+- circuit_opens - circuit_closes
 ```
 
 ---
 
-## Quick Checklist
+## Support & Escalation
 
-### Pre-Deploy Checklist
+### Quick Wins
 
-- [ ] Run smoke test: `python3 tools/load_smoke.py --requests 50`
-- [ ] Check latency budgets: `python3 evals/latency.py`
-- [ ] Verify fallback works: `python3 tools/load_smoke.py --pinecone-down`
-- [ ] Check resource limits: verify capacity sufficient
-- [ ] Review recent changes: `git log --oneline --since="24 hours"`
-- [ ] Backup configuration: `cp .env .env.backup`
+1. **Disable reviewer**: `export PERF_REVIEWER_ENABLED=false`
+2. **Enable fallback**: `export PERF_PGVECTOR_ENABLED=true`
+3. **Reset breakers**: `curl -X POST localhost:8000/debug/circuit-breakers/reset`
+4. **Increase limits**: `export LIMITS_MAX_CONCURRENT_GLOBAL=200`
 
-### Post-Deploy Checklist
+### When to Escalate
 
-- [ ] Verify health: `curl http://localhost:8000/healthz`
-- [ ] Check metrics: Run smoke test
-- [ ] Monitor logs: `tail -f /var/log/app.log`
-- [ ] Verify latency: Check p95 < budgets
-- [ ] Check error rate: Should be <5%
-- [ ] Monitor for 15 minutes before marking complete
+- Error rate > 10% for > 5 minutes
+- p95 latency > 2000ms for > 5 minutes
+- Multiple circuit breakers stuck open
+- Fallback rate > 80% (complete Pinecone outage)
+- Complete service unavailability
 
-### Incident Response Checklist
+### Contact Information
 
-- [ ] Check health endpoints
-- [ ] Review recent deployments
-- [ ] Check external dependencies (Pinecone, DB)
-- [ ] Review error logs
-- [ ] Check resource usage (CPU, memory, disk)
-- [ ] Verify circuit breakers not stuck open
-- [ ] Check queue depths
-- [ ] Test fallback paths
-- [ ] Collect metrics for post-mortem
-- [ ] Document remediation steps
+- **On-Call Engineer**: PagerDuty → chatbot-api-oncall
+- **Pinecone Support**: support@pinecone.io
+- **Internal Slack**: #chatbot-api-alerts
 
 ---
 
 **Document Version**: 1.0  
-**Last Reviewed**: 2025-11-04  
-**Owner**: Platform Team  
-**Feedback**: Submit issues or suggestions via pull request
-
----
-
-## See Also
-
-- [Latency Gates Implementation](../LATENCY_GATES_QUICKSTART.md)
-- [Resource Limits Guide](../RESOURCE_LIMITS_QUICKSTART.md)
-- [Load Smoke Test Tool](../LOAD_SMOKE_QUICKSTART.md)
-- [Evaluation Runbook](evals-runbook.md)
+**Last Review**: 2025-11-04  
+**Next Review**: 2025-12-04  
+**Owner**: SRE Team

@@ -1,45 +1,120 @@
-# CI Latency Gates - Quick Reference
+# CI Latency Gates - Quick Start Guide
 
-Fast reference for using CI latency gates.
+## What Are Latency Gates?
 
-## Quick Start
+Latency gates enforce performance SLOs in CI by checking p95 latencies against budgets and failing PRs that exceed thresholds.
 
-### 1. Generate Metrics
+---
+
+## Budgets (All enforced in CI)
+
+| Metric | Budget | Description |
+|--------|--------|-------------|
+| Retrieval (dual-index) | ≤ 500ms | Vector + graph retrieval |
+| Graph expansion | ≤ 200ms | Knowledge graph traversal |
+| Context packing | ≤ 550ms | Prompt construction |
+| Reviewer call | ≤ 500ms | External reviewer API (when enabled) |
+| Overall /chat | ≤ 1200ms | End-to-end chat endpoint |
+
+---
+
+## Slack Configuration
+
+### Automatic Slack by Environment
+
+- **Pull Requests**: 0% slack (strict)
+- **Nightly Builds**: 10% slack (allows variance)
+- **Manual Runs**: Configurable via input
+
+### Why Slack?
+
+Allows for non-deterministic system variance in CI while maintaining strict enforcement on PRs.
+
+---
+
+## Quick Commands
+
+### Check Gates Locally
 
 ```bash
-# Run performance tests to populate metrics
+# 1. Generate metrics by running performance tests
+python3 -m pytest tests/perf/ -v
+
+# 2. Check all gates (reads LATENCY_SLACK_PERCENT env var)
+python3 evals/latency.py
+
+# 3. Apply 10% slack (simulate nightly mode)
+python3 evals/latency.py --slack 10
+
+# 4. Check specific gates only
+python3 evals/latency.py --gates retrieval_ms packing_ms
+
+# 5. Quiet mode (only show failures)
+python3 evals/latency.py --quiet
+```
+
+### Run Tests
+
+```bash
+# Run latency gate unit tests
+python3 -m unittest tests.perf.test_latency_gate_ci -v
+
+# Run all performance tests
 python3 -m pytest tests/perf/ -v
 ```
 
-### 2. Check Gates
+---
 
-```bash
-# Check all enabled gates
-python3 evals/latency.py
+## CI Workflows
 
-# Check with slack (nightly mode)
-python3 evals/latency.py --slack 10
+### Latency Gates Workflow (`.github/workflows/latency-gates.yml`)
 
-# Check specific gates
-python3 evals/latency.py --gates retrieval_ms packing_ms
-```
+**When it runs:**
+- Every PR to `main`/`develop`
+- Nightly at 2 AM UTC
+- Manual trigger via Actions tab
 
-### 3. Interpret Results
+**What it does:**
+1. Determines slack (0% for PRs, 10% for nightly)
+2. Runs performance tests to generate metrics
+3. Checks latency gates
+4. Reports results in GitHub summary
+5. Comments on PR if gates fail
+6. Fails CI if budgets exceeded
 
-**✅ All gates passed**:
+**Manual trigger:**
+1. Go to Actions tab
+2. Select "Latency Gates" workflow
+3. Click "Run workflow"
+4. Set slack percentage (0-10)
+5. Run
+
+### Evaluation Workflow (`.github/workflows/evals.yml`)
+
+Includes latency awareness with `EVAL_LATENCY_SLACK_PERCENT` env var.
+
+---
+
+## Interpreting Results
+
+### ✅ Passing Gates
+
 ```
 ================================================================================
 LATENCY GATE RESULTS
 ================================================================================
 ✅ Retrieval (dual-index) p95: 450.0ms ≤ 500.0ms (budget: 500ms, count: 100)
-✅ Context packing p95: 520.0ms ≤ 550.0ms (budget: 550ms, count: 100)
+✅ Context packing p95: 500.0ms ≤ 550.0ms (budget: 550ms, count: 100)
 
 Summary: 2/2 gates passed
 ✅ All gates passed
 ================================================================================
 ```
 
-**❌ Gate failed**:
+**What it means:** All operations meet performance SLOs. CI will pass.
+
+### ❌ Failing Gates
+
 ```
 ================================================================================
 LATENCY GATE RESULTS
@@ -53,7 +128,7 @@ Summary: 0/1 gates passed
 ❌ LATENCY GATES FAILED
 
 The following latency budgets were exceeded:
-  • ❌ Retrieval (dual-index) p95: 650.0ms > 500.0ms (budget: 500ms, overage: +150.0ms / +30.0%)
+  • ❌ Retrieval (dual-index) p95: 650.0ms > 500.0ms (budget: 500ms, overage: +150.0ms / +30.0%, count: 100)
 
 Actionable steps:
   1. Review recent changes that may have impacted performance
@@ -62,493 +137,296 @@ Actionable steps:
   4. If budgets are unrealistic, update them in evals/latency.py
 ```
 
-## Budgets
+**What it means:** Retrieval is 30% slower than budget. CI will fail. Review changes for performance regressions.
 
-| Metric | p95 Budget | Description | Default Enabled |
-|--------|------------|-------------|----------------|
-| `retrieval_ms` | ≤ 500ms | Dual-index retrieval | ✅ |
-| `graph_expand_ms` | ≤ 200ms | Graph expansion | ✅ |
-| `packing_ms` | ≤ 550ms | Context packing | ✅ |
-| `reviewer_ms` | ≤ 500ms | Reviewer call | ❌ (when enabled) |
-| `chat_total_ms` | ≤ 1200ms | Overall /chat | ✅ |
+### ⚠️ Warning (No Data)
 
-## CLI Usage
-
-### Basic Commands
-
-```bash
-# Check all enabled gates (no slack)
-python3 evals/latency.py
-
-# Apply 10% slack to all budgets
-python3 evals/latency.py --slack 10
-
-# Check only specific gates
-python3 evals/latency.py --gates retrieval_ms packing_ms
-
-# Quiet mode (only show failures)
-python3 evals/latency.py --quiet
+```
+⚠️  Retrieval (dual-index) p95: No data (count=0)
 ```
 
-### With Environment Variables
+**What it means:** No metrics recorded. Run performance tests first or check if feature is disabled.
 
-```bash
-# Set slack via env var
-export LATENCY_SLACK_PERCENT=5
-python3 evals/latency.py
+---
 
-# Temporary env var
-LATENCY_SLACK_PERCENT=10 python3 evals/latency.py
-```
+## Common Scenarios
+
+### Scenario 1: PR Fails Gates
+
+**Problem:** Your PR fails latency gates in CI
+
+**Steps:**
+1. Check workflow logs for which gates failed
+2. Review changes in your PR that touch those areas
+3. Run gates locally to reproduce:
+   ```bash
+   LATENCY_SLACK_PERCENT=0 python3 evals/latency.py
+   ```
+4. Profile slow operations:
+   ```bash
+   python3 -m cProfile -s cumtime your_script.py
+   ```
+5. Optimize hot paths (caching, query optimization, etc.)
+6. Re-test locally before pushing
+7. If budgets are unrealistic, discuss with team
+
+### Scenario 2: Nightly Build Fails
+
+**Problem:** Nightly build fails gates (with 10% slack applied)
+
+**Steps:**
+1. Check if it's a consistent failure (check last 3-5 nights)
+2. Compare with PR runs to see if it's CI-specific
+3. Investigate if recent merged PRs degraded performance
+4. Consider if budgets need adjustment for new features
+5. If persistent, file issue for investigation
+
+### Scenario 3: Local Pass, CI Fails
+
+**Problem:** Gates pass locally but fail in CI
+
+**Possible Causes:**
+- Local run uses slack, CI PR run uses 0% slack
+- Different data/load in CI
+- CI environment slower than local
+
+**Steps:**
+1. Test locally with 0% slack:
+   ```bash
+   LATENCY_SLACK_PERCENT=0 python3 evals/latency.py
+   ```
+2. Review differences in CI vs local environment
+3. Ensure tests are deterministic
+4. Consider if CI environment needs optimization
+
+### Scenario 4: Adding New Feature
+
+**Problem:** New feature needs latency budget
+
+**Steps:**
+1. Determine appropriate p95 budget based on requirements
+2. Edit `evals/latency.py`:
+   ```python
+   DEFAULT_BUDGETS = [
+       # ... existing ...
+       LatencyBudget(
+           metric_name="new_feature_ms",
+           p95_budget_ms=400.0,
+           description="New feature p95"
+       ),
+   ]
+   ```
+3. Add metric recording in code:
+   ```python
+   from core.metrics import observe_histogram
+   observe_histogram("new_feature_ms", duration_ms)
+   ```
+4. Add test coverage in `tests/perf/test_latency_gate_ci.py`
+5. Update documentation
+
+---
 
 ## Python API
 
-### Basic Usage
+### Quick Check
 
 ```python
 from evals.latency import check_latency_gates
 
-# Check all gates
-success = check_latency_gates()
+# Simple check (returns True/False)
+success = check_latency_gates(
+    slack_percent=10.0,
+    enabled_gates=["retrieval_ms", "packing_ms"],
+    verbose=True,
+    exit_on_failure=False
+)
 
-# With slack
-success = check_latency_gates(slack_percent=10.0)
-
-# Check specific gates
-success = check_latency_gates(enabled_gates=["retrieval_ms", "packing_ms"])
-
-# Don't exit on failure
-success = check_latency_gates(exit_on_failure=False)
+if not success:
+    print("Gates failed!")
 ```
 
-### Advanced Usage
+### Custom Gates
 
 ```python
 from evals.latency import LatencyGates, LatencyBudget
 
-# Create custom budgets
-custom_budgets = [
-    LatencyBudget(
-        metric_name="retrieval_ms",
-        p95_budget_ms=400.0,  # Stricter budget
-        description="Fast retrieval",
-        labels={"method": "dual"}
-    )
-]
+# Create custom budget
+custom_budget = LatencyBudget(
+    metric_name="my_operation_ms",
+    p95_budget_ms=300.0,
+    description="My operation p95"
+)
 
-# Initialize gates
-gates = LatencyGates(budgets=custom_budgets, slack_percent=5.0)
-
-# Check gates
+# Check custom gates
+gates = LatencyGates(budgets=[custom_budget], slack_percent=5.0)
 results = gates.check_all_gates()
-
-# Print results
-gates.print_results(results, verbose=True)
-
-# Check for failures
+gates.print_results(results)
 success = gates.fail_if_exceeded(results, exit_on_failure=False)
 ```
 
-### Programmatic Checking
+### Recording Metrics
 
 ```python
-from evals.latency import LatencyGates
+from core.metrics import observe_histogram
+import time
 
-gates = LatencyGates(slack_percent=10.0)
-results = gates.check_all_gates(enabled_gates=["retrieval_ms"])
+start = time.perf_counter()
+# ... your operation ...
+duration_ms = (time.perf_counter() - start) * 1000.0
 
-for result in results:
-    print(f"Metric: {result.metric_name}")
-    print(f"Budget: {result.budget_ms}ms")
-    print(f"Actual p95: {result.actual_p95}ms")
-    print(f"Passed: {result.passed}")
-    print(f"Message: {result.message}")
-    print(f"Slack: {result.slack_applied_percent}%")
+observe_histogram("operation_ms", duration_ms, labels={"type": "sync"})
 ```
 
-## CI/CD Integration
-
-### GitHub Actions
-
-**PR workflow** (strict, no slack):
-```yaml
-- name: Check latency gates
-  env:
-    LATENCY_SLACK_PERCENT: 0
-  run: python3 evals/latency.py
-```
-
-**Nightly workflow** (lenient, 10% slack):
-```yaml
-- name: Check latency gates
-  env:
-    LATENCY_SLACK_PERCENT: 10
-  run: python3 evals/latency.py
-```
-
-**Manual workflow** (configurable):
-```yaml
-- name: Check latency gates
-  env:
-    LATENCY_SLACK_PERCENT: ${{ github.event.inputs.slack_percent || '0' }}
-  run: python3 evals/latency.py
-```
-
-### Complete CI Job
-
-```yaml
-jobs:
-  latency-gates:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-      
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      
-      - name: Generate metrics
-        run: python3 -m pytest tests/perf/ -v
-      
-      - name: Check gates
-        env:
-          LATENCY_SLACK_PERCENT: ${{ github.event_name == 'schedule' && '10' || '0' }}
-        run: python3 evals/latency.py
-```
-
-## Slack Configuration
-
-### When to Use Slack
-
-| Context | Slack | Reason |
-|---------|-------|--------|
-| PR | 0% | Strict enforcement, prevent regressions |
-| Nightly | 10% | Allow variance, monitor trends |
-| Manual | Variable | Testing and debugging |
-| Production | 0% | Strict monitoring |
-
-### Slack Calculation
-
-```python
-# Base budget
-budget = 500.0  # ms
-
-# With 0% slack (PR mode)
-allowed = 500.0ms
-
-# With 10% slack (nightly mode)
-allowed = 500.0 * 1.10 = 550.0ms
-
-# With 5% slack (custom)
-allowed = 500.0 * 1.05 = 525.0ms
-```
-
-## Customizing Budgets
-
-### Edit Default Budgets
-
-```python
-# evals/latency.py
-
-DEFAULT_BUDGETS = [
-    LatencyBudget(
-        metric_name="retrieval_ms",
-        p95_budget_ms=400.0,  # ← Change this
-        description="Retrieval (dual-index) p95",
-        labels={"method": "dual"}
-    ),
-    # ... other budgets
-]
-```
-
-### Add New Budget
-
-```python
-# evals/latency.py
-
-DEFAULT_BUDGETS = [
-    # ... existing budgets
-    LatencyBudget(
-        metric_name="my_custom_operation_ms",
-        p95_budget_ms=300.0,
-        description="Custom operation p95",
-        enabled_by_default=True
-    ),
-]
-```
-
-### Disable Budget
-
-```python
-LatencyBudget(
-    metric_name="reviewer_ms",
-    p95_budget_ms=500.0,
-    description="Reviewer call p95",
-    enabled_by_default=False  # ← Disabled by default
-)
-```
-
-## Common Workflows
-
-### 1. Pre-commit Check
-
-```bash
-#!/bin/bash
-# .git/hooks/pre-commit
-
-echo "Running latency gates..."
-python3 -m pytest tests/perf/ -v -q
-python3 evals/latency.py --quiet
-
-if [ $? -ne 0 ]; then
-    echo "❌ Latency gates failed. Commit aborted."
-    exit 1
-fi
-```
-
-### 2. Local Development
-
-```bash
-# After making changes
-python3 -m pytest tests/perf/ -v
-
-# Check impact on latency
-python3 evals/latency.py
-
-# Compare with slack
-python3 evals/latency.py --slack 10
-```
-
-### 3. Performance Regression Detection
-
-```bash
-# Baseline (main branch)
-git checkout main
-python3 -m pytest tests/perf/ -v
-python3 evals/latency.py > baseline.txt
-
-# Feature branch
-git checkout feature-branch
-python3 -m pytest tests/perf/ -v
-python3 evals/latency.py > feature.txt
-
-# Compare
-diff baseline.txt feature.txt
-```
-
-### 4. Continuous Monitoring
-
-```python
-# monitor.py
-from evals.latency import LatencyGates
-
-def check_latency_daily():
-    """Run daily latency checks."""
-    gates = LatencyGates(slack_percent=10.0)
-    results = gates.check_all_gates()
-    
-    failed = [r for r in results if not r.passed]
-    
-    if failed:
-        send_alert(f"Daily latency check: {len(failed)} gates failed")
-    
-    return len(failed) == 0
-```
+---
 
 ## Troubleshooting
 
-### No Data (Count=0)
+### No Data (count=0)
 
-**Symptom**: All gates show "No data (count=0)"
+**Problem:** Gates show "No data (count=0)"
 
-**Cause**: Metrics not recorded
-
-**Fix**:
+**Solution:** 
 ```bash
-# Generate metrics first
+# Run performance tests to generate metrics first
 python3 -m pytest tests/perf/ -v
 
 # Then check gates
 python3 evals/latency.py
 ```
 
-### Gates Fail Unexpectedly
+### Import Errors
 
-**Symptom**: Local gates pass, CI fails
+**Problem:** `ModuleNotFoundError: No module named 'core.metrics'`
 
-**Cause**: Different slack settings
-
-**Fix**:
+**Solution:**
 ```bash
-# Test with CI settings (0% slack)
-python3 evals/latency.py --slack 0
+# Ensure you're in the workspace root
+cd /workspace
 
-# Compare with nightly (10% slack)
-python3 evals/latency.py --slack 10
+# Or add workspace to PYTHONPATH
+export PYTHONPATH=/workspace:$PYTHONPATH
 ```
 
-### Budgets Too Strict
+### Workflow Doesn't Trigger
 
-**Symptom**: Frequent failures on minor changes
+**Problem:** Latency gates workflow doesn't run on PR
 
-**Fix**:
-1. Use slack for nightly: `--slack 10`
-2. Review budgets in `evals/latency.py`
-3. Consider if budgets are realistic for your system
+**Solution:**
+1. Check if PR modifies files in workflow paths:
+   - `core/**`, `adapters/**`, `router/**`, `evals/**`, `tests/**`
+2. Verify workflow file exists: `.github/workflows/latency-gates.yml`
+3. Check branch protection rules allow workflow runs
 
-### Missing Gate
+### Gates Always Fail
 
-**Symptom**: Expected gate not checked
+**Problem:** Gates consistently fail even with good code
 
-**Cause**: Gate disabled by default
-
-**Fix**:
-```bash
-# Enable specific gate
-python3 evals/latency.py --gates retrieval_ms reviewer_ms packing_ms
-```
-
-Or edit `evals/latency.py`:
-```python
-LatencyBudget(
-    metric_name="reviewer_ms",
-    enabled_by_default=True  # ← Enable
-)
-```
-
-## Best Practices
-
-### ✅ Do
-
-- Run performance tests before checking gates
-- Use 0% slack for PRs (strict enforcement)
-- Use 10% slack for nightly (trend monitoring)
-- Update budgets when architecture changes
-- Include actionable messages in custom gates
-- Check gates locally before pushing
-
-### ❌ Don't
-
-- Run gates without generating metrics first
-- Use excessive slack (>10%)
-- Keep unrealistic budgets
-- Ignore repeated gate failures
-- Skip gates in CI
-
-## Examples
-
-### Example 1: Basic Check
-
-```bash
-$ python3 -m pytest tests/perf/ -v
-$ python3 evals/latency.py
-
-================================================================================
-LATENCY GATE RESULTS
-================================================================================
-✅ Retrieval (dual-index) p95: 450.0ms ≤ 500.0ms (budget: 500ms, count: 100)
-✅ Graph expansion p95: 150.0ms ≤ 200.0ms (budget: 200ms, count: 100)
-✅ Context packing p95: 520.0ms ≤ 550.0ms (budget: 550ms, count: 100)
-
-Summary: 3/3 gates passed
-✅ All gates passed
-================================================================================
-```
-
-### Example 2: With Slack
-
-```bash
-$ LATENCY_SLACK_PERCENT=10 python3 evals/latency.py
-
-================================================================================
-LATENCY GATE RESULTS
-================================================================================
-ℹ️  Slack applied: +10.0% to all budgets
-
-✅ Retrieval (dual-index) p95: 525.0ms ≤ 550.0ms (budget: 500ms, +10% slack, count: 100)
-✅ Context packing p95: 580.0ms ≤ 605.0ms (budget: 550ms, +10% slack, count: 100)
-
-Summary: 2/2 gates passed
-✅ All gates passed
-================================================================================
-```
-
-### Example 3: Failure
-
-```bash
-$ python3 evals/latency.py
-
-================================================================================
-LATENCY GATE RESULTS
-================================================================================
-❌ Retrieval (dual-index) p95: 650.0ms > 500.0ms (budget: 500ms, overage: +150.0ms / +30.0%, count: 100)
-
-Summary: 0/1 gates passed
-⚠️  1 gate(s) failed
-================================================================================
-
-❌ LATENCY GATES FAILED
-
-The following latency budgets were exceeded:
-  • ❌ Retrieval (dual-index) p95: 650.0ms > 500.0ms (budget: 500ms, overage: +150.0ms / +30.0%)
-
-Actionable steps:
-  1. Review recent changes that may have impacted performance
-  2. Profile slow operations to identify bottlenecks
-  3. Consider optimizing hot paths or adding caching
-  4. If budgets are unrealistic, update them in evals/latency.py
-```
-
-## Quick Reference Card
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ LATENCY GATES QUICK REFERENCE                               │
-├─────────────────────────────────────────────────────────────┤
-│ CHECK ALL GATES                                             │
-│   python3 evals/latency.py                                  │
-│                                                             │
-│ WITH SLACK                                                  │
-│   python3 evals/latency.py --slack 10                       │
-│                                                             │
-│ SPECIFIC GATES                                              │
-│   python3 evals/latency.py --gates retrieval_ms packing_ms  │
-│                                                             │
-│ QUIET MODE                                                  │
-│   python3 evals/latency.py --quiet                          │
-│                                                             │
-│ VIA ENV VAR                                                 │
-│   LATENCY_SLACK_PERCENT=5 python3 evals/latency.py          │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ BUDGETS                                                     │
-├─────────────────────────────────────────────────────────────┤
-│ retrieval_ms      ≤ 500ms   (dual-index)                   │
-│ graph_expand_ms   ≤ 200ms   (graph expansion)              │
-│ packing_ms        ≤ 550ms   (context packing)              │
-│ reviewer_ms       ≤ 500ms   (reviewer call)                │
-│ chat_total_ms     ≤ 1200ms  (overall /chat)                │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ SLACK SETTINGS                                              │
-├─────────────────────────────────────────────────────────────┤
-│ PR mode:      0%  (strict)                                  │
-│ Nightly:      10% (lenient)                                 │
-│ Manual:       0-10% (configurable)                          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Related Documentation
-
-- `LATENCY_GATES_DELIVERY_SUMMARY.md` - Full implementation details
-- `evals/latency.py` - Source code
-- `.github/workflows/latency-gates.yml` - CI workflow
-- `tests/perf/test_latency_gate_ci.py` - Test examples
+**Solution:**
+1. Review budgets - may be too strict for current implementation
+2. Check if test data is realistic
+3. Verify metrics are being recorded correctly
+4. Consider adjusting budgets in `evals/latency.py`
 
 ---
 
-**Need help?** Check the full delivery summary or file an issue.
+## Key Files
+
+| File | Purpose | Lines |
+|------|---------|-------|
+| `evals/latency.py` | Core gate checker | 363 |
+| `tests/perf/test_latency_gate_ci.py` | Unit tests | 390 |
+| `.github/workflows/latency-gates.yml` | CI workflow | 180 |
+| `.github/workflows/evals.yml` | Eval workflow | 245 |
+| `core/metrics.py` | Metrics collection | ~1000 |
+
+---
+
+## Best Practices
+
+### Development Workflow
+
+1. **Before starting work:** Check current gate status
+2. **During development:** Run performance tests frequently
+3. **Before committing:** Verify gates pass locally with 0% slack
+4. **After PR fails:** Investigate immediately, don't merge with failures
+5. **After merge:** Monitor nightly builds for trends
+
+### Writing Performance-Sensitive Code
+
+1. **Profile first:** Identify actual bottlenecks before optimizing
+2. **Cache aggressively:** Reuse expensive computations
+3. **Lazy load:** Defer expensive operations until needed
+4. **Batch operations:** Reduce API calls and DB queries
+5. **Monitor metrics:** Add observability for new operations
+
+### Updating Budgets
+
+1. **Document rationale:** Explain why budget changed
+2. **Get approval:** Discuss with team before relaxing budgets
+3. **Add tests:** Ensure new budgets are enforced
+4. **Update docs:** Keep documentation in sync
+
+---
+
+## FAQ
+
+**Q: Why do we have different slack for PRs vs nightly?**
+
+A: PRs get 0% slack to catch regressions immediately. Nightly builds allow 10% slack to handle legitimate system variance while monitoring trends.
+
+**Q: Can I disable a specific gate?**
+
+A: Set `enabled_by_default=False` in the budget definition, or use `--gates` to check only specific gates.
+
+**Q: What if my feature legitimately needs more time?**
+
+A: Update the budget in `evals/latency.py` with team approval and clear documentation of why.
+
+**Q: How do I test gates locally without running all perf tests?**
+
+A: Record test metrics manually:
+```python
+from core.metrics import reset_metrics, observe_histogram
+reset_metrics()
+for _ in range(100):
+    observe_histogram("retrieval_ms", 450.0, labels={"method": "dual"})
+```
+
+**Q: Can I run gates on specific branches?**
+
+A: Yes, trigger manually via Actions tab with workflow dispatch.
+
+**Q: How are percentiles calculated?**
+
+A: P95 is calculated from sorted raw values using linear interpolation.
+
+---
+
+## Getting Help
+
+1. **Check logs:** Review CI workflow logs for details
+2. **Read summary:** Check GitHub Step Summary for results
+3. **Run locally:** Reproduce issue with local testing
+4. **Ask team:** Discuss performance concerns with team
+5. **File issue:** Create issue for persistent problems
+
+---
+
+## Summary
+
+✅ **All latency budgets enforced in CI**
+✅ **Automatic slack based on environment**
+✅ **Clear, actionable failure messages**
+✅ **Comprehensive test coverage**
+✅ **Easy local testing**
+✅ **GitHub integration**
+
+**Remember:** Latency gates protect user experience by preventing performance regressions from reaching production.
+
+---
+
+**Quick Links:**
+- [Full Implementation Summary](LATENCY_GATES_CI_SUMMARY.md)
+- [Test File](tests/perf/test_latency_gate_ci.py)
+- [Latency Script](evals/latency.py)
+- [Workflow](./github/workflows/latency-gates.yml)

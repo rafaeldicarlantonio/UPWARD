@@ -13,7 +13,28 @@ from config import (
     RECENCY_FLOOR,
 )
 
-CFG = load_config()
+# Try to load config, but don't exit - create app anyway to show error
+_config_error = None
+try:
+    CFG = load_config()
+except Exception as e:
+    import sys
+    import traceback
+    _config_error = str(e)
+    print("=" * 80, file=sys.stderr)
+    print("FATAL: Failed to load configuration", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    print(f"Error: {e}", file=sys.stderr)
+    print(file=sys.stderr)
+    print("Full traceback:", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    print("Check your environment variables in Render dashboard", file=sys.stderr)
+    print("Required variables: OPENAI_API_KEY, SUPABASE_URL, PINECONE_API_KEY,", file=sys.stderr)
+    print("  PINECONE_INDEX, PINECONE_EXPLICATE_INDEX, PINECONE_IMPLICATE_INDEX", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    # DON'T exit - create app anyway so uvicorn can start
+    CFG = {}
 
 app = FastAPI(
     title="SUAPS Brain",
@@ -67,7 +88,37 @@ def debug_routers():
 @app.get("/healthz")
 async def healthz():
     """Minimal liveness probe."""
+    if _config_error:
+        return {
+            "status": "degraded",
+            "error": "configuration_failed",
+            "message": _config_error
+        }
     return {"status": "ok"}
+
+@app.get("/")
+async def root():
+    """Root endpoint with configuration status."""
+    if _config_error:
+        return {
+            "status": "error",
+            "message": "Configuration failed to load",
+            "error": _config_error,
+            "required_variables": [
+                "OPENAI_API_KEY",
+                "SUPABASE_URL",
+                "PINECONE_API_KEY",
+                "PINECONE_INDEX",
+                "PINECONE_EXPLICATE_INDEX",
+                "PINECONE_IMPLICATE_INDEX"
+            ],
+            "help": "Set these environment variables in Render dashboard under Environment tab"
+        }
+    return {
+        "status": "ok",
+        "title": app.title,
+        "version": app.version
+    }
 
 
 @app.get("/debug/selftest")

@@ -53,6 +53,16 @@ DEFAULTS = {
     "PERF_REVIEWER_BUDGET_MS": 500,
     "PERF_PGVECTOR_ENABLED": True,
     "PERF_FALLBACKS_ENABLED": True,
+    
+    # Resource limits and bulkheads
+    "LIMITS_ENABLED": True,
+    "LIMITS_MAX_CONCURRENT_PER_USER": 3,
+    "LIMITS_MAX_QUEUE_SIZE_PER_USER": 10,
+    "LIMITS_MAX_CONCURRENT_GLOBAL": 100,
+    "LIMITS_MAX_QUEUE_SIZE_GLOBAL": 500,
+    "LIMITS_RETRY_AFTER_SECONDS": 5,
+    "LIMITS_QUEUE_TIMEOUT_SECONDS": 30.0,
+    "LIMITS_OVERLOAD_POLICY": "drop_newest",  # drop_newest, drop_oldest, block
 }
 
 def load_config():
@@ -194,6 +204,46 @@ def load_config():
             except (ValueError, TypeError):
                 raise RuntimeError(
                     f"{k} must be a positive integer, got: {val}"
+                )
+        
+        # Resource limits - boolean flags
+        elif k == "LIMITS_ENABLED":
+            val = val.lower() in ('true', '1', 'yes', 'on') if isinstance(val, str) else bool(val)
+        
+        # Resource limits - positive integers
+        elif k in {
+            "LIMITS_MAX_CONCURRENT_PER_USER",
+            "LIMITS_MAX_QUEUE_SIZE_PER_USER",
+            "LIMITS_MAX_CONCURRENT_GLOBAL",
+            "LIMITS_MAX_QUEUE_SIZE_GLOBAL",
+            "LIMITS_RETRY_AFTER_SECONDS",
+        }:
+            try:
+                val = int(val)
+                if val <= 0:
+                    raise ValueError(f"{k} must be a positive integer")
+            except (ValueError, TypeError):
+                raise RuntimeError(
+                    f"{k} must be a positive integer, got: {val}"
+                )
+        
+        # Resource limits - queue timeout (positive float)
+        elif k == "LIMITS_QUEUE_TIMEOUT_SECONDS":
+            try:
+                val = float(val)
+                if val <= 0:
+                    raise ValueError("LIMITS_QUEUE_TIMEOUT_SECONDS must be positive")
+            except (ValueError, TypeError):
+                raise RuntimeError(
+                    f"LIMITS_QUEUE_TIMEOUT_SECONDS must be a positive float, got: {val}"
+                )
+        
+        # Resource limits - overload policy
+        elif k == "LIMITS_OVERLOAD_POLICY":
+            valid_policies = ["drop_newest", "drop_oldest", "block"]
+            if val not in valid_policies:
+                raise RuntimeError(
+                    f"LIMITS_OVERLOAD_POLICY must be one of {valid_policies}, got: {val}"
                 )
         
         cfg[k] = val

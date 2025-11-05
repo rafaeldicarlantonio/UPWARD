@@ -1,364 +1,733 @@
 # Circuit Breakers - Quick Reference
 
+**TL;DR**: Circuit breakers prevent spamming failed services. Opens after N failures, cooldown period, half-open probe, auto-recovery on success.
+
+---
+
 ## What It Does
 
-Implements circuit breaker pattern to prevent cascading failures and service spam during outages. Automatically opens after consecutive failures, prevents calls during cooldown, and recovers gracefully.
+Circuit breaker pattern for external services (Pinecone vector store, reviewer LLM):
 
-## Key Concepts
+- **Prevents service spam**: Stops calling failed services
+- **Three states**: CLOSED (normal), OPEN (blocked), HALF_OPEN (testing)
+- **Automatic recovery**: Half-open probe after cooldown
+- **Rolling counters**: Tracks consecutive failures/successes
+- **Graceful degradation**: Works with fallback systems
 
-**Three States**:
-- **CLOSED**: Normal operation, all calls allowed
-- **OPEN**: Service failing, all calls rejected
-- **HALF_OPEN**: Testing recovery with probe calls
-
-**Transitions**:
-```
-CLOSED --[N failures]--> OPEN --[cooldown]--> HALF_OPEN --[success]--> CLOSED
-                          ^                        |
-                          └────────[failure]───────┘
-```
+---
 
 ## Quick Start
 
-### 1. Create Circuit Breaker
+### 1. Basic Usage
 
 ```python
-from core.circuit import CircuitBreaker, CircuitBreakerConfig
+from core.circuit import get_circuit_breaker, CircuitBreakerConfig, CircuitBreakerOpenError
 
-config = CircuitBreakerConfig(
-    name="my_service",
-    failure_threshold=5,      # Open after 5 failures
-    cooldown_seconds=60.0,    # Wait 60s before retry
-    success_threshold=2       # Close after 2 successes
+# Get circuit breaker
+breaker = get_circuit_breaker(
+    "my_service",
+    CircuitBreakerConfig(
+        name="my_service",
+        failure_threshold=5,     # Open after 5 failures
+        cooldown_seconds=60.0,   # Wait 60s before retry
+        success_threshold=2      # Close after 2 successes
+    )
 )
 
-breaker = CircuitBreaker(config)
-```
-
-### 2. Wrap Service Calls
-
-```python
-from core.circuit import CircuitBreakerOpenError
-
+# Call through circuit breaker
 try:
-    result = breaker.call(external_api_call, arg1, arg2)
+    result = breaker.call(my_function, arg1, arg2)
 except CircuitBreakerOpenError:
-    # Circuit open - use fallback
-    result = fallback_logic()
+    print("Circuit is open, service unavailable")
+    result = fallback_function()
 ```
 
-### 3. Monitor State
-
-```python
-# Check current state
-state = breaker.get_state()
-print(f"Circuit is {state.value}")
-
-# Get statistics
-stats = breaker.get_stats()
-print(f"Failures: {stats['consecutive_failures']}")
-print(f"Opened at: {stats['opened_at']}")
-```
-
-## Health Checks
-
-### Check Service Health
+### 2. Health Checks
 
 ```python
 from core.health import check_pinecone_health, check_reviewer_health
 
-# Pinecone
+# Check Pinecone
 result = check_pinecone_health()
 if result.is_healthy:
-    print(f"Pinecone OK ({result.latency_ms:.1f}ms)")
+    print(f"✅ Pinecone healthy ({result.latency_ms:.1f}ms)")
 else:
-    print(f"Pinecone DOWN: {result.error}")
+    print(f"❌ Pinecone unhealthy: {result.error}")
 
-# Reviewer
+# Check reviewer
 result = check_reviewer_health()
-print(f"Reviewer: {'✓' if result.is_healthy else '✗'}")
+print(f"Reviewer: {'✅' if result.is_healthy else '❌'}")
 ```
 
-### Use in Circuit Breaker
+### 3. Check Circuit State
 
 ```python
-# Health check as probe
-def health_probe():
-    result = check_pinecone_health()
-    if not result.is_healthy:
-        raise Exception(result.error)
-    return result
+from core.circuit import get_circuit_breaker
 
-# Use with breaker
-try:
-    health = breaker.call(health_probe)
-except CircuitBreakerOpenError:
-    print("Circuit open, service unavailable")
+breaker = get_circuit_breaker("pinecone")
+stats = breaker.get_stats()
+
+print(f"State: {stats['state']}")
+print(f"Consecutive failures: {stats['consecutive_failures']}")
+print(f"Total failures: {stats['total_failures']}")
 ```
+
+---
+
+## Circuit States
+
+### CLOSED (Normal Operation)
+
+- **All calls allowed**
+- Tracks consecutive failures
+- Opens after `failure_threshold` reached
+
+```python
+breaker.get_state() == CircuitState.CLOSED
+# can_execute() returns True
+```
+
+### OPEN (Service Down)
+
+- **All calls rejected** immediately
+- No actual service calls made
+- Raises `CircuitBreakerOpenError`
+- After `cooldown_seconds`, transitions to HALF_OPEN
+
+```python
+breaker.get_state() == CircuitState.OPEN
+# can_execute() returns False
+# Raises CircuitBreakerOpenError
+```
+
+### HALF_OPEN (Testing Recovery)
+
+- **Single probe call** allowed at a time
+- Success → Increment success counter
+- After `success_threshold` successes → CLOSED
+- Any failure → Back to OPEN
+
+```python
+breaker.get_state() == CircuitState.HALF_OPEN
+# can_execute() returns True (for single probe)
+```
+
+---
+
+## State Transitions
+
+```
+CLOSED ──(N failures)──> OPEN ──(cooldown)──> HALF_OPEN
+   ↑                                               │
+   │                                               │
+   └────────────(M successes)──────────────────────┘
+                                                    │
+                                         (any failure)
+                                                    ↓
+                                                  OPEN
+```
+
+**Legend**:
+- N = `failure_threshold` (default: 5)
+- M = `success_threshold` (default: 2)
+- Cooldown = `cooldown_seconds` (default: 60s)
+
+---
+
+## Configuration
+
+### Default Configuration
+
+```python
+CircuitBreakerConfig(
+    name="service_name",
+    failure_threshold=5,        # Open after 5 consecutive failures
+    cooldown_seconds=60.0,      # Wait 60s before half-open
+    success_threshold=2,        # Close after 2 consecutive successes
+    timeout_seconds=None        # Optional call timeout
+)
+```
+
+### Pinecone Circuit Breaker
+
+Already configured in `core/selection.py`:
+
+```python
+CircuitBreakerConfig(
+    name="pinecone",
+    failure_threshold=5,
+    cooldown_seconds=60.0,
+    success_threshold=2
+)
+```
+
+### Reviewer Circuit Breaker
+
+Already configured in `core/reviewer.py`:
+
+```python
+CircuitBreakerConfig(
+    name="reviewer",
+    failure_threshold=5,
+    cooldown_seconds=60.0,
+    success_threshold=2
+)
+```
+
+---
 
 ## Integration
 
-### Pinecone (Already Integrated)
+### DualSelector (Already Integrated)
+
+Pinecone circuit breaker is automatically used:
 
 ```python
 from core.selection import DualSelector
 
 selector = DualSelector()
 
-# Circuit breaker applied automatically
+# Circuit breaker is consulted automatically
 result = selector.select(
-    query="test",
-    embedding=[0.1] * 1536
+    query="machine learning",
+    embedding=embedding_vector
 )
 
-# Check if fallback was used
+# If circuit is open, automatically uses pgvector fallback
 if result.fallback.get('used'):
-    print(f"Used fallback: {result.fallback['reason']}")
+    print(f"Using fallback: {result.fallback['reason']}")
 ```
 
-### Custom Service
+### AnswerReviewer (Already Integrated)
+
+Reviewer circuit breaker is automatically used:
 
 ```python
-from core.circuit import get_circuit_breaker, CircuitBreakerConfig
+from core.reviewer import AnswerReviewer
 
-# Get or create breaker
-breaker = get_circuit_breaker(
-    "my_service",
-    CircuitBreakerConfig(name="my_service")
+reviewer = AnswerReviewer()
+
+# Circuit breaker is consulted automatically
+result = reviewer.review(
+    answer="The answer is 42",
+    context=context_items
 )
 
-# Use it
-def call_service():
-    return my_service.do_something()
-
-result = breaker.call(call_service)
+# If circuit is open, review is skipped
+if result.skipped:
+    print(f"Review skipped: {result.skip_reason}")
 ```
 
-## Configuration
+---
 
-### Default Settings
+## Common Patterns
 
-| Setting | Pinecone | Reviewer |
-|---------|----------|----------|
-| Failure threshold | 5 | 5 |
-| Cooldown (seconds) | 60 | 60 |
-| Success threshold | 2 | 2 |
-
-### Custom Configuration
+### 1. Call with Fallback
 
 ```python
-# More aggressive
-config = CircuitBreakerConfig(
-    name="fast_fail",
-    failure_threshold=3,      # Open faster
-    cooldown_seconds=30.0,    # Shorter cooldown
-    success_threshold=1       # Close immediately
-)
+from core.circuit import get_circuit_breaker, CircuitBreakerOpenError
 
-# More tolerant
-config = CircuitBreakerConfig(
-    name="slow_fail",
-    failure_threshold=10,     # More failures allowed
-    cooldown_seconds=120.0,   # Longer cooldown
-    success_threshold=3       # Multiple successes required
-)
+breaker = get_circuit_breaker("my_service")
+
+try:
+    result = breaker.call(primary_service_call)
+except CircuitBreakerOpenError:
+    # Circuit is open, use fallback
+    result = fallback_service_call()
 ```
+
+### 2. Pre-Check Before Call
+
+```python
+breaker = get_circuit_breaker("my_service")
+
+if breaker.can_execute():
+    result = breaker.call(service_call)
+else:
+    print("Circuit is open, skipping call")
+    result = None
+```
+
+### 3. Monitor Circuit State
+
+```python
+import time
+from core.circuit import get_circuit_breaker
+
+breaker = get_circuit_breaker("pinecone")
+
+while True:
+    stats = breaker.get_stats()
+    
+    if stats['state'] == 'open':
+        print(f"⚠️  Circuit OPEN: {stats['consecutive_failures']} failures")
+    
+    time.sleep(10)
+```
+
+### 4. Health Check Integration
+
+```python
+from core.circuit import get_circuit_breaker, CircuitBreakerOpenError
+from core.health import check_pinecone_health
+
+breaker = get_circuit_breaker("pinecone")
+
+try:
+    # Health check through circuit breaker
+    health = breaker.call(check_pinecone_health)
+    
+    if not health.is_healthy:
+        print(f"Service unhealthy: {health.error}")
+except CircuitBreakerOpenError:
+    print("Circuit open, service unavailable")
+```
+
+### 5. Manual Reset (Testing)
+
+```python
+from core.circuit import get_circuit_breaker
+
+breaker = get_circuit_breaker("pinecone")
+
+# Manually reset to CLOSED state
+breaker.reset()
+
+# Or reset all breakers
+from core.circuit import reset_all_circuit_breakers
+reset_all_circuit_breakers()
+```
+
+---
+
+## Health Checks
+
+### Pinecone Health Check
+
+```python
+from core.health import check_pinecone_health
+
+result = check_pinecone_health()
+
+print(f"Service: {result.service}")
+print(f"Healthy: {result.is_healthy}")
+print(f"Latency: {result.latency_ms:.1f}ms")
+
+if not result.is_healthy:
+    print(f"Error: {result.error}")
+else:
+    print(f"Total vectors: {result.details.get('total_vectors', 0)}")
+```
+
+**What it checks**:
+- Pinecone client import
+- Index availability
+- `describe_index_stats()` operation
+- Returns total vector count
+
+### Reviewer Health Check
+
+```python
+from core.health import check_reviewer_health
+
+result = check_reviewer_health()
+
+if result.is_healthy:
+    print(f"Reviewer ready: {result.details.get('status')}")
+else:
+    print(f"Reviewer unavailable: {result.error}")
+```
+
+**What it checks**:
+- Reviewer enabled in config
+- OpenAI client initialization
+- Client readiness
+
+### Check All Services
+
+```python
+from core.health import check_all_services
+
+results = check_all_services()
+
+for service, result in results.items():
+    status = "✅" if result.is_healthy else "❌"
+    print(f"{status} {service}: {result.latency_ms:.1f}ms")
+```
+
+---
 
 ## Metrics
 
-Monitor circuit breakers via metrics:
+### Counters
 
-```python
-# Circuit breaker events
-circuit_breaker.success{breaker="pinecone",state="closed"}
-circuit_breaker.failure{breaker="pinecone",state="closed",error_type="TimeoutError"}
-circuit_breaker.rejected{breaker="pinecone"}
-circuit_breaker.state_change{breaker="pinecone",to_state="open"}
+- `circuit_breaker.success{breaker,state}` - Successful calls
+- `circuit_breaker.failure{breaker,state,error_type}` - Failed calls
+- `circuit_breaker.rejected{breaker}` - Rejected calls
+- `circuit_breaker.state_change{breaker,to_state}` - State transitions
+- `health_check.success{service}` - Successful health checks
+- `health_check.failure{service,error_type}` - Failed health checks
 
-# Call duration
-circuit_breaker.call_duration_ms{breaker="pinecone",result="success"}
+### Histograms
 
-# Health checks
-health_check.success{service="pinecone"}
-health_check.failure{service="pinecone",error_type="ConnectionError"}
-health_check.latency_ms{service="pinecone"}
+- `circuit_breaker.call_duration_ms{breaker,result}` - Call latency
+- `health_check.latency_ms{service}` - Health check latency
+
+### Example Queries (Prometheus)
+
+```promql
+# Circuit breaker state changes
+rate(circuit_breaker_state_change_total[5m])
+
+# Rejection rate
+rate(circuit_breaker_rejected_total{breaker="pinecone"}[5m])
+
+# Failure rate
+rate(circuit_breaker_failure_total[5m]) by (breaker)
+
+# Health check success rate
+rate(health_check_success_total[5m]) / rate(health_check_total[5m])
 ```
+
+---
 
 ## Troubleshooting
 
-### Circuit Keeps Opening
+### Problem: Circuit keeps opening
 
-**Possible causes**:
-1. Service is genuinely down
-2. Threshold too low
-3. Network issues
-
-**Solutions**:
+**Check circuit stats**:
 ```python
-# Check service health
-result = check_pinecone_health()
-print(f"Health: {result.is_healthy}, Error: {result.error}")
-
-# Review stats
+breaker = get_circuit_breaker("pinecone")
 stats = breaker.get_stats()
-print(f"Failure rate: {stats['total_failures']/stats['total_successes']}")
 
-# Adjust threshold
-config.failure_threshold = 10  # More tolerant
+print(f"Consecutive failures: {stats['consecutive_failures']}")
+print(f"Total failures: {stats['total_failures']}")
+print(f"Total successes: {stats['total_successes']}")
 ```
 
-### Circuit Stuck Open
+**Check service health**:
+```python
+from core.health import check_pinecone_health
 
-**Possible causes**:
-1. Cooldown not expired
-2. Health check failing
-3. Service still down
+result = check_pinecone_health()
+if not result.is_healthy:
+    print(f"Service issue: {result.error}")
+```
 
 **Solutions**:
-```python
-# Check opened_at time
-stats = breaker.get_stats()
-elapsed = time.time() - stats['opened_at']
-print(f"Open for {elapsed:.1f}s, cooldown: {config.cooldown_seconds}s")
+- Check service logs
+- Verify API keys/credentials
+- Increase `failure_threshold`
+- Check network connectivity
 
-# Manual reset (use with caution)
+### Problem: Circuit stuck open
+
+**Check time since opening**:
+```python
+import time
+
+stats = breaker.get_stats()
+if stats['opened_at']:
+    elapsed = time.time() - stats['opened_at']
+    print(f"Circuit opened {elapsed:.1f}s ago")
+    print(f"Cooldown: {stats['cooldown_seconds']}s")
+    print(f"Remaining: {stats['cooldown_seconds'] - elapsed:.1f}s")
+```
+
+**Manual reset** (if service is healthy):
+```python
 breaker.reset()
 ```
 
-### Half-Open Not Closing
+### Problem: False positive failures
 
-**Possible causes**:
-1. Probe calls failing
-2. Success threshold not met
-3. Intermittent failures
+**Symptoms**:
+- Circuit opens due to transient errors
+- Service is actually healthy
 
 **Solutions**:
 ```python
-# Check consecutive successes
-stats = breaker.get_stats()
-print(f"Successes: {stats['consecutive_successes']}/{config.success_threshold}")
-
-# Lower success threshold
-config.success_threshold = 1  # Close faster
-```
-
-## Best Practices
-
-### 1. Use Registry
-
-```python
-# DON'T create multiple instances
-breaker1 = CircuitBreaker(config)
-breaker2 = CircuitBreaker(config)  # Different instance!
-
-# DO use registry
-breaker = get_circuit_breaker("service", config)
-```
-
-### 2. Always Have Fallback
-
-```python
-# DON'T just fail
-result = breaker.call(service_call)
-
-# DO provide fallback
-try:
-    result = breaker.call(service_call)
-except CircuitBreakerOpenError:
-    result = fallback_implementation()
-```
-
-### 3. Monitor State Changes
-
-```python
-# Track state changes
-prev_state = breaker.get_state()
-
-# After operation
-new_state = breaker.get_state()
-if prev_state != new_state:
-    log.warning(f"Circuit {breaker.config.name}: {prev_state} → {new_state}")
-```
-
-### 4. Set Appropriate Thresholds
-
-```python
-# Critical services: Fail fast
-critical_config = CircuitBreakerConfig(
-    name="critical",
-    failure_threshold=3,
-    cooldown_seconds=30.0
+# Increase failure threshold
+config = CircuitBreakerConfig(
+    name="service",
+    failure_threshold=10,  # More tolerant
+    cooldown_seconds=30.0  # Shorter recovery
 )
 
-# Non-critical: More tolerant
-noncritical_config = CircuitBreakerConfig(
-    name="noncritical",
-    failure_threshold=10,
-    cooldown_seconds=120.0
-)
+# Or add retry logic before circuit breaker
 ```
+
+---
 
 ## Testing
 
 ### Unit Tests
 
-```python
-from core.circuit import CircuitBreaker, CircuitBreakerConfig, CircuitState
+```bash
+# Run all circuit breaker tests
+python3 -m unittest tests.perf.test_circuit_breaker -v
+```
 
-def test_opens_on_failure():
-    config = CircuitBreakerConfig(name="test", failure_threshold=3)
-    breaker = CircuitBreaker(config)
+Expected: **19/19 tests passing**
+
+### Integration Test
+
+```python
+#!/usr/bin/env python3
+"""Test circuit breaker integration."""
+
+from core.circuit import get_circuit_breaker, CircuitBreakerConfig, CircuitBreakerOpenError
+import time
+
+def test_circuit_breaker():
+    # Create breaker
+    breaker = get_circuit_breaker(
+        "test",
+        CircuitBreakerConfig(
+            name="test",
+            failure_threshold=3,
+            cooldown_seconds=0.1,
+            success_threshold=2
+        )
+    )
     
+    # Fail 3 times to open
     for i in range(3):
-        with pytest.raises(Exception):
+        try:
             breaker.call(lambda: (_ for _ in ()).throw(Exception("Fail")))
+        except Exception:
+            pass
     
-    assert breaker.get_state() == CircuitState.OPEN
+    # Should be OPEN
+    assert breaker.get_state().value == "open"
+    
+    # Should reject next call
+    try:
+        breaker.call(lambda: "attempt")
+        assert False, "Should have raised CircuitBreakerOpenError"
+    except CircuitBreakerOpenError:
+        pass
+    
+    # Wait for cooldown
+    time.sleep(0.15)
+    
+    # Should allow probe (HALF_OPEN)
+    result = breaker.call(lambda: "probe1")
+    assert result == "probe1"
+    
+    # Second success should close
+    result = breaker.call(lambda: "probe2")
+    assert result == "probe2"
+    assert breaker.get_state().value == "closed"
+    
+    print("✅ Circuit breaker test passed")
+
+if __name__ == "__main__":
+    test_circuit_breaker()
 ```
 
-### Integration Tests
+### Smoke Test
 
-```python
-def test_with_fallback():
-    breaker = get_circuit_breaker("test")
-    
-    # Simulate failures
-    for i in range(5):
-        with pytest.raises(Exception):
-            breaker.call(failing_service)
-    
-    # Next call should use fallback
-    result = get_with_breaker_and_fallback(breaker, failing_service, fallback)
-    assert result == fallback_result
+```bash
+python3 << 'EOF'
+from core.circuit import get_circuit_breaker, CircuitBreakerConfig, CircuitState
+from core.health import check_pinecone_health, check_reviewer_health
+
+# Test circuit breaker creation
+breaker = get_circuit_breaker("test", CircuitBreakerConfig(name="test"))
+assert breaker.get_state() == CircuitState.CLOSED
+
+# Test health checks exist
+pinecone_health = check_pinecone_health()
+assert hasattr(pinecone_health, 'is_healthy')
+
+reviewer_health = check_reviewer_health()
+assert hasattr(reviewer_health, 'is_healthy')
+
+print("✅ Smoke test passed")
+EOF
 ```
+
+---
 
 ## API Reference
 
-### CircuitBreaker Methods
+### CircuitBreaker
 
-- `call(func, *args, **kwargs)` - Execute function through breaker
-- `can_execute()` - Check if calls allowed
-- `get_state()` - Get current state
-- `get_stats()` - Get statistics
-- `reset()` - Manually reset to CLOSED
+```python
+class CircuitBreaker:
+    def call(self, func: Callable, *args, **kwargs) -> Any
+    def can_execute(self) -> bool
+    def get_state(self) -> CircuitState
+    def get_stats(self) -> Dict[str, Any]
+    def reset(self) -> None
+```
 
-### Health Check Functions
+### CircuitBreakerConfig
 
-- `check_pinecone_health()` - Check Pinecone status
-- `check_reviewer_health()` - Check reviewer LLM status
-- `check_all_services()` - Check all services
-- `is_service_healthy(name)` - Quick health check
+```python
+@dataclass
+class CircuitBreakerConfig:
+    name: str
+    failure_threshold: int = 5
+    cooldown_seconds: float = 60.0
+    success_threshold: int = 2
+    timeout_seconds: Optional[float] = None
+```
 
-### Registry Functions
+### HealthCheckResult
 
-- `get_circuit_breaker(name, config)` - Get or create breaker
-- `get_all_circuit_breakers()` - List all breakers
-- `reset_all_circuit_breakers()` - Reset all (testing)
+```python
+class HealthCheckResult:
+    service: str
+    is_healthy: bool
+    latency_ms: float
+    error: Optional[str]
+    details: Dict[str, Any]
+    timestamp: float
+```
 
-## Related
+### Functions
 
-- `CIRCUIT_BREAKER_DELIVERY_SUMMARY.md` - Full delivery report
-- `PGVECTOR_FALLBACK_QUICKSTART.md` - Fallback integration
-- `core/circuit.py` - Implementation
-- `core/health.py` - Health checks
-- `tests/perf/test_circuit_breaker.py` - Test examples
+```python
+# Circuit breaker registry
+def get_circuit_breaker(name: str, config: Optional[CircuitBreakerConfig] = None) -> CircuitBreaker
+def get_all_circuit_breakers() -> Dict[str, CircuitBreaker]
+def reset_all_circuit_breakers() -> None
+
+# Health checks
+def check_pinecone_health() -> HealthCheckResult
+def check_reviewer_health() -> HealthCheckResult
+def check_all_services() -> Dict[str, HealthCheckResult]
+def is_service_healthy(service: str) -> bool
+```
+
+---
+
+## Best Practices
+
+### ✅ DO
+
+- Use circuit breakers for all external service calls
+- Monitor circuit state changes
+- Combine with fallback systems
+- Use health checks as probes
+- Log when circuit opens/closes
+- Configure thresholds based on service criticality
+
+### ❌ DON'T
+
+- Don't bypass circuit breaker for "important" calls
+- Don't reset circuit breakers in production without investigation
+- Don't set failure_threshold too low (avoid false positives)
+- Don't ignore OPEN state (it's telling you something)
+- Don't forget to implement fallbacks
+
+---
+
+## Examples
+
+### Example 1: API Endpoint with Circuit Breaker
+
+```python
+from fastapi import APIRouter, HTTPException
+from core.circuit import get_circuit_breaker, CircuitBreakerOpenError
+
+router = APIRouter()
+
+@router.get("/search")
+def search(query: str):
+    breaker = get_circuit_breaker("pinecone")
+    
+    try:
+        results = breaker.call(
+            search_pinecone,
+            query=query
+        )
+        return {"results": results}
+    
+    except CircuitBreakerOpenError:
+        # Circuit open, return cached results
+        return {
+            "results": get_cached_results(query),
+            "warning": "Using cached results (service unavailable)"
+        }
+```
+
+### Example 2: Background Task with Circuit Breaker
+
+```python
+from core.circuit import get_circuit_breaker, CircuitBreakerOpenError
+import logging
+
+logger = logging.getLogger(__name__)
+
+def process_batch(items):
+    breaker = get_circuit_breaker("external_api")
+    
+    results = []
+    for item in items:
+        try:
+            result = breaker.call(process_item, item)
+            results.append(result)
+        except CircuitBreakerOpenError:
+            logger.warning(f"Circuit open, skipping item {item.id}")
+            results.append(None)
+    
+    return results
+```
+
+### Example 3: Circuit Breaker Dashboard
+
+```python
+from core.circuit import get_all_circuit_breakers
+
+def get_circuit_breaker_dashboard():
+    """Get dashboard data for all circuit breakers."""
+    breakers = get_all_circuit_breakers()
+    
+    dashboard = {}
+    for name, breaker in breakers.items():
+        stats = breaker.get_stats()
+        dashboard[name] = {
+            "state": stats['state'],
+            "health": "🟢" if stats['state'] == 'closed' else "🔴" if stats['state'] == 'open' else "🟡",
+            "consecutive_failures": stats['consecutive_failures'],
+            "total_failures": stats['total_failures'],
+            "total_successes": stats['total_successes'],
+            "success_rate": f"{100 * stats['total_successes'] / max(stats['total_successes'] + stats['total_failures'], 1):.1f}%"
+        }
+    
+    return dashboard
+
+# Use in API
+@router.get("/debug/circuit-breakers")
+def get_circuit_breaker_status():
+    return get_circuit_breaker_dashboard()
+```
+
+---
+
+## Related Docs
+
+- **Implementation Details**: `CIRCUIT_BREAKER_IMPLEMENTATION.md`
+- **Pgvector Fallback**: `PGVECTOR_FALLBACK_QUICKSTART.md`
+- **Performance Flags**: `PERF_FLAGS_QUICKSTART.md`
+
+---
+
+## Summary
+
+**Circuit breakers provide automatic failure protection**:
+
+- ✅ Prevents spamming failed services
+- ✅ Three-state machine (CLOSED/OPEN/HALF_OPEN)
+- ✅ Automatic recovery with probes
+- ✅ Rolling failure counters
+- ✅ Configurable thresholds
+- ✅ Integrated with Pinecone and reviewer
+- ✅ Health probes for monitoring
+
+**Key Benefit**: Services degrade gracefully when dependencies fail. Circuit breakers prevent cascading failures and enable automatic recovery without manual intervention.
+
+**Production Ready**: 19/19 tests passing, thread-safe implementation, comprehensive metrics, integrated with critical services.

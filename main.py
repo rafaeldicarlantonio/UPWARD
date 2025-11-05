@@ -73,6 +73,8 @@ _mount("ingest")
 _mount("memories")
 _mount("search")
 _mount("entities")
+_mount("debug")
+_mount("debug_selftest")
 
 @app.get("/debug/routers")
 def debug_routers():

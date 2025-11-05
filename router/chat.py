@@ -395,11 +395,11 @@ def chat_chat_post(
 
         # 🔗 Graph Expansion (3 hops) - non-fatal
         try:
-        graph_neighbors = expand_entities(sb, retrieved_chunks, max_hops=3, max_neighbors=10, max_per_entity=3)
-        retrieved_chunks.extend(graph_neighbors)
+            graph_neighbors = expand_entities(sb, retrieved_chunks, max_hops=3, max_neighbors=10, max_per_entity=3)
+            retrieved_chunks.extend(graph_neighbors)
         except Exception as e:
-        # non-fatal: log or ignore if graph expansion fails
-        print("Graph expansion failed:", e)
+            # non-fatal: log or ignore if graph expansion fails
+            print("Graph expansion failed:", e)
 
         # 🎭 Orchestrator Integration - behind feature flags
         # TEMPORARILY DISABLED DUE TO INDENTATION ISSUES - TODO: FIX
@@ -422,54 +422,54 @@ def chat_chat_post(
         external_fetch_count = 0
     
         try:
-        if get_feature_flag("external_compare", default=False):
-            # Check if user has access to external comparison
-            if can_use_external_compare(user_roles):
-                external_start = time.time()
-                print("Running external comparison (flag on, role allowed)")
-                
-                # TODO: Implement actual external fetching
-                # For now, placeholder that would call external adapter
-                # external_results = await fetch_external_content(body.prompt, user_roles)
-                
-                external_time_ms = (time.time() - external_start) * 1000
-                external_fetch_count = len(external_results) if external_results else 0
-                
-                if external_results:
-                    print(f"External comparison fetched {external_fetch_count} results in {external_time_ms:.1f}ms")
+            if get_feature_flag("external_compare", default=False):
+                # Check if user has access to external comparison
+                if can_use_external_compare(user_roles):
+                    external_start = time.time()
+                    print("Running external comparison (flag on, role allowed)")
+                    
+                    # TODO: Implement actual external fetching
+                    # For now, placeholder that would call external adapter
+                    # external_results = await fetch_external_content(body.prompt, user_roles)
+                    
+                    external_time_ms = (time.time() - external_start) * 1000
+                    external_fetch_count = len(external_results) if external_results else 0
+                    
+                    if external_results:
+                        print(f"External comparison fetched {external_fetch_count} results in {external_time_ms:.1f}ms")
+                    else:
+                        print(f"External comparison returned no results")
                 else:
-                    print(f"External comparison returned no results")
-            else:
-                print("External comparison: role denied")
+                    print("External comparison: role denied")
         except Exception as e:
-        print(f"External comparison failed: {e}")
+            print(f"External comparison failed: {e}")
         # Non-fatal: continue with internal results only
         external_results = None
 
         # Answer
         draft = _answer_json(body.prompt, context_for_llm, contradictions)
-            if not isinstance(draft, dict):
-        raise HTTPException(status_code=500, detail="Answerer returned non-JSON")
+        if not isinstance(draft, dict):
+            raise HTTPException(status_code=500, detail="Answerer returned non-JSON")
 
-            # Ensure citations are always a list of strings (ids only)
-            if "citations" in draft and isinstance(draft["citations"], list):
-        draft["citations"] = [
-            c if isinstance(c, str) else c.get("id") for c in draft["citations"]
-        ]
+        # Ensure citations are always a list of strings (ids only)
+        if "citations" in draft and isinstance(draft["citations"], list):
+            draft["citations"] = [
+                c if isinstance(c, str) else c.get("id") for c in draft["citations"]
+            ]
 
-            # Red-team (non-fatal)
+        # Red-team (non-fatal)
         try:
-        verdict = review_answer(
+            verdict = review_answer(
             draft_json=draft,
             prompt=body.prompt,
             retrieved_chunks=retrieved_chunks
-        ) or {}
+            ) or {}
         except Exception:
-        verdict = {"action": "allow", "reasons": []}
+            verdict = {"action": "allow", "reasons": []}
         action = (verdict.get("action") or "allow").lower()
 
-            if action == "block":
-        return {
+        if action == "block":
+            return {
             "session_id": session_id,
             "answer": "I can’t answer confidently with the available evidence. Try adding filters or uploading the source.",
             "citations": [],
@@ -477,141 +477,141 @@ def chat_chat_post(
             "autosave": {"saved": False, "items": []},
             "redteam": verdict,
             "metrics": {"latency_ms": int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)},
-        }
+            }
 
             # -----------------------
             # Autosave (non-fatal) with robust fallback
             # -----------------------
         try:
-        # Prefer LLM-provided autosave candidates
-        candidates = (draft.get("autosave_candidates") or []).copy()
+            # Prefer LLM-provided autosave candidates
+            candidates = (draft.get("autosave_candidates") or []).copy()
 
-        # If none, derive from USER + ASSISTANT + small CONTEXT sample
-        if not candidates:
-            sample_ctx = "\n\n".join(
-                [(c.get("text") or "")[:1200] for c in (retrieved_chunks[:2] if retrieved_chunks else [])]
+            # If none, derive from USER + ASSISTANT + small CONTEXT sample
+            if not candidates:
+                sample_ctx = "\n\n".join(
+                    [(c.get("text") or "")[:1200] for c in (retrieved_chunks[:2] if retrieved_chunks else [])]
+                )
+                fallback_text = (
+                    f"USER:\n{(body.prompt or '')[:4000]}\n\n"
+                    f"ASSISTANT:\n{(draft.get('answer') or '')[:4000]}\n\n"
+                    f"CONTEXT:\n{sample_ctx}"
+                )
+                derived = extract_signals_from_text(fallback_text) or []
+
+                # Tag derived items with provenance + session for traceability
+                for d in derived:
+                    tags = set(d.get("tags") or [])
+                    tags.update({"source:chat", f"session:{session_id}"})
+                    d["tags"] = sorted(list(tags))
+                candidates.extend(derived)
+
+            autosave = apply_autosave(
+                sb=sb,
+                pinecone_index=index,
+                candidates=candidates,
+                session_id=session_id,
+                text_col_env=os.getenv("MEMORIES_TEXT_COLUMN", "text"),
+                author_user_id=author_user_id,  # pass attribution
             )
-            fallback_text = (
-                f"USER:\n{(body.prompt or '')[:4000]}\n\n"
-                f"ASSISTANT:\n{(draft.get('answer') or '')[:4000]}\n\n"
-                f"CONTEXT:\n{sample_ctx}"
-            )
-            derived = extract_signals_from_text(fallback_text) or []
-
-            # Tag derived items with provenance + session for traceability
-            for d in derived:
-                tags = set(d.get("tags") or [])
-                tags.update({"source:chat", f"session:{session_id}"})
-                d["tags"] = sorted(list(tags))
-            candidates.extend(derived)
-
-        autosave = apply_autosave(
-            sb=sb,
-            pinecone_index=index,
-            candidates=candidates,
-            session_id=session_id,
-            text_col_env=os.getenv("MEMORIES_TEXT_COLUMN", "text"),
-            author_user_id=author_user_id,  # pass attribution
-        )
         except Exception:
-        autosave = {"saved": False, "items": []}
+            autosave = {"saved": False, "items": []}
 
         # Persist messages (best-effort)
         message_id = None
         try:
-        # Insert user message
-        user_msg_result = sb.table("messages").insert(
-            {"session_id": session_id, "role": "user", "content": body.prompt, "model": os.getenv("CHAT_MODEL")}
-        ).execute()
-        
-        # Insert assistant message
-        assistant_msg_result = sb.table("messages").insert(
-            {
-                "session_id": session_id,
-                "role": "assistant",
-                "content": draft.get("answer") or "",
-                "model": os.getenv("CHAT_MODEL"),
-                "latency_ms": int((datetime.datetime.utcnow() - t0).total_seconds() * 1000),
-            }
-        ).execute()
-        
-        # Get the assistant message ID for tracing
-        if assistant_msg_result.data and len(assistant_msg_result.data) > 0:
-            message_id = assistant_msg_result.data[0]["id"]
+            # Insert user message
+            user_msg_result = sb.table("messages").insert(
+                {"session_id": session_id, "role": "user", "content": body.prompt, "model": os.getenv("CHAT_MODEL")}
+            ).execute()
             
+            # Insert assistant message
+            assistant_msg_result = sb.table("messages").insert(
+                {
+                    "session_id": session_id,
+                    "role": "assistant",
+                    "content": draft.get("answer") or "",
+                    "model": os.getenv("CHAT_MODEL"),
+                    "latency_ms": int((datetime.datetime.utcnow() - t0).total_seconds() * 1000),
+                }
+            ).execute()
+            
+            # Get the assistant message ID for tracing
+            if assistant_msg_result.data and len(assistant_msg_result.data) > 0:
+                message_id = assistant_msg_result.data[0]["id"]
+                
         except Exception as e:
-        print(f"Failed to persist messages: {e}")
+            print(f"Failed to persist messages: {e}")
     
         # Log rheomode run if dual_index is enabled
-            if get_feature_flag("retrieval.dual_index", default=False) and message_id and selection_result:
-        try:
-            total_time = (datetime.datetime.utcnow() - t0).total_seconds() * 1000
-            timing = {
-                "total_ms": total_time,
-                "retrieval_ms": retrieval_time,
-                "graph_expansion_ms": 0,  # Could be calculated if needed
-                "llm_ms": total_time - retrieval_time
-            }
-            
-            log_chat_request(
-                session_id=session_id,
-                message_id=message_id,
-                role=body.role or "user",
-                query=body.prompt,
-                selection_result=selection_result,
-                contradictions=contradictions,
-                timing=timing,
-                lift_score=lift_score,
-                contradiction_score=contradiction_score
-            )
-        except Exception as e:
-            print(f"Failed to log rheomode run: {e}")
+        if get_feature_flag("retrieval.dual_index", default=False) and message_id and selection_result:
+            try:
+                total_time = (datetime.datetime.utcnow() - t0).total_seconds() * 1000
+                timing = {
+                    "total_ms": total_time,
+                    "retrieval_ms": retrieval_time,
+                    "graph_expansion_ms": 0,  # Could be calculated if needed
+                    "llm_ms": total_time - retrieval_time
+                }
+                
+                log_chat_request(
+                    session_id=session_id,
+                    message_id=message_id,
+                    role=body.role or "user",
+                    query=body.prompt,
+                    selection_result=selection_result,
+                    contradictions=contradictions,
+                    timing=timing,
+                    lift_score=lift_score,
+                    contradiction_score=contradiction_score
+                )
+            except Exception as e:
+                print(f"Failed to log rheomode run: {e}")
 
         # 📝 Ledger Persistence - conditional on feature flag
-            if get_feature_flag("ledger.enabled", default=False) and message_id and orchestration_result:
-        try:
-            print("Writing orchestration trace to ledger")
-            
-            # Load configuration for ledger options
-            config = load_config()
-            ledger_options = LedgerOptions(
-                max_trace_bytes=config.get("LEDGER_MAX_TRACE_BYTES", 100_000),
-                enable_hashing=True,
-                redact_large_fields=True,
-                hash_algorithm="sha256"
-            )
-            
-            # Add external comparison metadata to orchestration result if available
-            if external_results is not None or get_feature_flag("external_compare", default=False):
-                # Augment orchestration result with external metadata
-                if not hasattr(orchestration_result, 'metadata'):
-                    orchestration_result.metadata = {}
+        if get_feature_flag("ledger.enabled", default=False) and message_id and orchestration_result:
+            try:
+                print("Writing orchestration trace to ledger")
                 
-                orchestration_result.metadata['factare.external'] = {
-                    'enabled': get_feature_flag("external_compare", default=False),
-                    'role_allowed': can_use_external_compare(user_roles) if get_feature_flag("external_compare", default=False) else False,
-                    'fetch_count': external_fetch_count,
-                    'fetch_time_ms': round(external_time_ms, 2),
-                    'has_results': external_results is not None
-                }
-            
-            # Write to ledger
-            ledger_entry = write_ledger(
-                session_id=session_id,
-                message_id=message_id,
-                trace=orchestration_result,
-                options=ledger_options
-            )
-            
-            print(f"Ledger entry written: {ledger_entry.stored_size} bytes (truncated: {ledger_entry.is_truncated})")
-            
-            # Add ledger info to orchestration warnings if truncated
-            if ledger_entry.is_truncated:
-                orchestration_warnings.append(f"Trace truncated for ledger storage: {ledger_entry.original_size} -> {ledger_entry.stored_size} bytes")
-            
-        except Exception as e:
-            orchestration_warnings.append(f"Ledger persistence failed: {str(e)}")
-            print(f"Failed to write to ledger: {e}")
+                # Load configuration for ledger options
+                config = load_config()
+                ledger_options = LedgerOptions(
+                    max_trace_bytes=config.get("LEDGER_MAX_TRACE_BYTES", 100_000),
+                    enable_hashing=True,
+                    redact_large_fields=True,
+                    hash_algorithm="sha256"
+                )
+                
+                # Add external comparison metadata to orchestration result if available
+                if external_results is not None or get_feature_flag("external_compare", default=False):
+                    # Augment orchestration result with external metadata
+                    if not hasattr(orchestration_result, 'metadata'):
+                        orchestration_result.metadata = {}
+                    
+                    orchestration_result.metadata['factare.external'] = {
+                        'enabled': get_feature_flag("external_compare", default=False),
+                        'role_allowed': can_use_external_compare(user_roles) if get_feature_flag("external_compare", default=False) else False,
+                        'fetch_count': external_fetch_count,
+                        'fetch_time_ms': round(external_time_ms, 2),
+                        'has_results': external_results is not None
+                    }
+                
+                # Write to ledger
+                ledger_entry = write_ledger(
+                    session_id=session_id,
+                    message_id=message_id,
+                    trace=orchestration_result,
+                    options=ledger_options
+                )
+                
+                print(f"Ledger entry written: {ledger_entry.stored_size} bytes (truncated: {ledger_entry.is_truncated})")
+                
+                # Add ledger info to orchestration warnings if truncated
+                if ledger_entry.is_truncated:
+                    orchestration_warnings.append(f"Trace truncated for ledger storage: {ledger_entry.original_size} -> {ledger_entry.stored_size} bytes")
+                
+            except Exception as e:
+                orchestration_warnings.append(f"Ledger persistence failed: {str(e)}")
+                print(f"Failed to write to ledger: {e}")
 
         # Record API call metrics
         total_latency_ms = (time.time() - start_time) * 1000
@@ -691,7 +691,7 @@ def chat_chat_post(
         
         return redacted_response
         
-        except Exception as e:
+    except Exception as e:
         # Record error metrics
         total_latency_ms = (time.time() - start_time) * 1000
         record_error("chat_api_error", str(e))

@@ -302,3 +302,229 @@ def delete_ledger_entry(session_id: str, message_id: str) -> bool:
     # In a real implementation, this would delete from the database
     # For now, return False as we don't have persistent storage
     return False
+
+
+# ============================================================================
+# Rheomode Ledger - For tracking retrieval selection runs
+# ============================================================================
+
+@dataclass
+class ProcessTrace:
+    """Process trace for a retrieval/selection run."""
+    flags: Dict[str, Any]
+    query: str
+    candidates: List[Dict[str, Any]]
+    contradictions: List[Dict[str, Any]]
+    timing: Dict[str, float]
+    strategy_used: str
+    metadata: Dict[str, Any]
+
+
+@dataclass
+class RheomodeRun:
+    """A rheomode run entry."""
+    session_id: str
+    message_id: str
+    role: str
+    process_trace: ProcessTrace
+    lift_score: Optional[float] = None
+    contradiction_score: Optional[float] = None
+    id: Optional[str] = None
+    process_trace_summary: Optional[str] = None
+    created_at: Optional[datetime] = None
+    
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.utcnow()
+
+
+class RheomodeLedger:
+    """Ledger for rheomode runs (retrieval selection tracking)."""
+    
+    def __init__(self):
+        """Initialize the rheomode ledger."""
+        try:
+            from vendors.supabase_client import get_client
+            self.client = get_client()
+        except Exception:
+            self.client = None
+    
+    def create_run(
+        self,
+        session_id: str,
+        message_id: str,
+        role: str,
+        process_trace: ProcessTrace,
+        lift_score: Optional[float] = None,
+        contradiction_score: Optional[float] = None
+    ) -> RheomodeRun:
+        """Create a new rheomode run entry."""
+        return RheomodeRun(
+            session_id=session_id,
+            message_id=message_id,
+            role=role,
+            process_trace=process_trace,
+            lift_score=lift_score,
+            contradiction_score=contradiction_score
+        )
+    
+    def persist_run(self, run: RheomodeRun) -> Optional[str]:
+        """Persist a rheomode run to storage."""
+        if not self.client:
+            return None
+        
+        try:
+            from dataclasses import asdict
+            
+            data = {
+                "session_id": run.session_id,
+                "message_id": run.message_id,
+                "role": run.role,
+                "process_trace": asdict(run.process_trace),
+                "lift_score": run.lift_score,
+                "contradiction_score": run.contradiction_score,
+                "created_at": run.created_at.isoformat() if run.created_at else None
+            }
+            
+            result = self.client.table("rheomode_runs").insert(data).execute()
+            if result.data and len(result.data) > 0:
+                return result.data[0].get("id")
+        except Exception as e:
+            print(f"Failed to persist rheomode run: {e}")
+        
+        return None
+    
+    def get_run_by_message_id(self, message_id: str) -> Optional[RheomodeRun]:
+        """Get a rheomode run by message ID."""
+        if not self.client:
+            return None
+        
+        try:
+            result = (
+                self.client.table("rheomode_runs")
+                .select("*")
+                .eq("message_id", message_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            
+            if result.data and len(result.data) > 0:
+                data = result.data[0]
+                process_trace_data = data.get("process_trace", {})
+                
+                return RheomodeRun(
+                    id=data.get("id"),
+                    session_id=data["session_id"],
+                    message_id=data["message_id"],
+                    role=data["role"],
+                    process_trace=ProcessTrace(**process_trace_data) if process_trace_data else None,
+                    process_trace_summary=data.get("process_trace_summary"),
+                    lift_score=data.get("lift_score"),
+                    contradiction_score=data.get("contradiction_score"),
+                    created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
+                )
+        except Exception as e:
+            print(f"Failed to get rheomode run: {e}")
+        
+        return None
+
+
+def create_process_trace(
+    query: str,
+    selection_result: Any,
+    contradictions: List[Dict[str, Any]],
+    timing: Dict[str, float],
+    lift_score: Optional[float] = None,
+    contradiction_score: Optional[float] = None
+) -> ProcessTrace:
+    """Create a process trace from selection results."""
+    from feature_flags import get_feature_flag
+    
+    # Capture current feature flags
+    flags = {
+        "retrieval.dual_index": get_feature_flag("retrieval.dual_index", default=False),
+        "retrieval.liftscore": get_feature_flag("retrieval.liftscore", default=False),
+        "retrieval.contradictions_pack": get_feature_flag("retrieval.contradictions_pack", default=False)
+    }
+    
+    # Extract candidates from selection result
+    candidates = []
+    if hasattr(selection_result, 'selected_memories'):
+        for mem in selection_result.selected_memories:
+            candidates.append({
+                "id": mem.get("id") if isinstance(mem, dict) else getattr(mem, "id", None),
+                "title": mem.get("title") if isinstance(mem, dict) else getattr(mem, "title", None),
+                "score": mem.get("score") if isinstance(mem, dict) else getattr(mem, "score", None),
+                "source": mem.get("source") if isinstance(mem, dict) else getattr(mem, "source", None),
+            })
+    
+    # Determine strategy
+    strategy_used = "dual" if flags.get("retrieval.dual_index") else "single"
+    
+    # Build metadata
+    metadata = {}
+    if hasattr(selection_result, 'explicate_count'):
+        metadata["explicate_hits"] = selection_result.explicate_count
+    if hasattr(selection_result, 'implicate_count'):
+        metadata["implicate_hits"] = selection_result.implicate_count
+    
+    return ProcessTrace(
+        flags=flags,
+        query=query,
+        candidates=candidates,
+        contradictions=contradictions or [],
+        timing=timing,
+        strategy_used=strategy_used,
+        metadata=metadata
+    )
+
+
+def log_chat_request(
+    session_id: str,
+    message_id: str,
+    role: str,
+    query: str,
+    selection_result: Any,
+    contradictions: List[Dict[str, Any]],
+    timing: Dict[str, float],
+    lift_score: Optional[float] = None,
+    contradiction_score: Optional[float] = None
+) -> Optional[str]:
+    """
+    Log a chat request with its retrieval selection process.
+    
+    Returns the run ID if successful, None otherwise.
+    """
+    from feature_flags import get_feature_flag
+    
+    # Only log if dual_index feature is enabled
+    if not get_feature_flag("retrieval.dual_index", default=False):
+        return None
+    
+    try:
+        # Create process trace
+        process_trace = create_process_trace(
+            query=query,
+            selection_result=selection_result,
+            contradictions=contradictions,
+            timing=timing,
+            lift_score=lift_score,
+            contradiction_score=contradiction_score
+        )
+        
+        # Create and persist run
+        ledger = RheomodeLedger()
+        run = ledger.create_run(
+            session_id=session_id,
+            message_id=message_id,
+            role=role,
+            process_trace=process_trace,
+            lift_score=lift_score,
+            contradiction_score=contradiction_score
+        )
+        
+        return ledger.persist_run(run)
+    except Exception as e:
+        print(f"Failed to log chat request: {e}")
+        return None

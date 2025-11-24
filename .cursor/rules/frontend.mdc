@@ -1,0 +1,95 @@
+
+---
+
+## 4. `.cursor/rules/frontend.mdc`
+
+This tells Cursor how to behave when touching the frontend.
+
+```md
+# Frontend Rules (UPWARD)
+
+## General
+
+- This project uses **Next.js (App Router)** with **TypeScript** for the frontend.
+- Styling is done with **Tailwind CSS** and **shadcn/ui** components.
+- When generating or modifying frontend code, always consult:
+  - `docs/frontend-spec.md`
+  - `docs/epistemic-ux-principles.md`
+  - `docs/api-contract.md`
+
+## Architecture & Files
+
+- All pages live under `app/`.
+  - `app/chat/page.tsx` – main epistemic workspace.
+  - `app/upload/page.tsx` – upload & corpus enrichment.
+  - `app/debug/page.tsx` – debug / epistemic control room.
+- Shared UI components should live under `app/components/` or `components/`, grouped by feature:
+  - `components/chat/`
+  - `components/upload/`
+  - `components/debug/`
+  - `components/layout/`
+- Shared types live in `lib/types.ts`.
+- API wrappers live in `lib/api.ts`.
+
+## API Usage
+
+- Use a single API helper in `lib/api.ts` for all network requests.
+- The base URL comes from `process.env.NEXT_PUBLIC_API_URL`.
+- Align request/response types with `docs/api-contract.md`.
+- Handle errors gracefully and return typed results.
+
+## Styling & UI
+
+- Use Tailwind utility classes for layout and spacing.
+- Prefer shadcn/ui components (`Card`, `Button`, `Input`, `Textarea`, `Select`, `Table`, `Toast`, etc.) for structure.
+- Avoid hard-coding color values; rely on theme tokens/classes.
+- Use a consistent spacing scale (4 / 8 / 12 / 16 / 24).
+
+## Epistemic Structure (Important)
+
+When rendering assistant responses on the Chat page:
+
+- Always structure the UI into four panels:
+  1. Answer
+  2. Evidence
+  3. Hypotheses
+  4. Uncertainty
+
+- The assistant message component should **not** return a single large text block.
+- Use the types defined in `lib/types.ts` (`ChatResponse`, `EvidenceItem`, `Hypothesis`, `ProcessTrace`).
+
+The Process sidebar (Rheomode / REDO):
+
+- Should show Relevate, Evidentiate, Divide, and Ordinate sections.
+- Must be visible in `scholar` and `staff` modes.
+- May be hidden by default in `public` mode.
+
+## Modes
+
+- There are three modes: `public`, `scholar`, `staff`.
+- The current mode is stored in a React context and selectable from the top navigation.
+- Mode affects:
+  - Visibility of epistemic details (e.g., hiding hypotheses in public mode).
+  - Which panels or controls are rendered (e.g., Staff controls).
+
+When adding logic conditioned on mode, follow the descriptions in `docs/frontend-spec.md` and `docs/epistemic-ux-principles.md`.
+
+## Interaction
+
+- Chat input:
+  - Enter submits, Shift+Enter inserts a newline.
+- Provide clear loading and error states for each API call.
+- Use small, focused components rather than large monolithic ones.
+
+## Non-goals
+
+- Do not introduce server-side rendering logic that is not needed.
+- Do not implement graph visualizations or complex collaboration features in v1.
+- Do not add extra routes beyond `/chat`, `/upload`, `/debug` without updating `docs/frontend-spec.md`.
+
+## Code Quality
+
+- Use TypeScript strictly; avoid `any` where possible.
+- Keep components small and composable.
+- Prefer functional components with hooks.
+- Follow Next.js and React best practices.

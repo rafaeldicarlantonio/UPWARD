@@ -405,19 +405,19 @@ def chat_chat_post(
     orchestration_result = None
     orchestration_warnings = []
     orchestration_time = 0
-    
-            if get_feature_flag("orchestrator.redo_enabled", default=False):
+
+    if get_feature_flag("orchestrator.redo_enabled", default=False):
         try:
             orchestration_start = time.time()
             print("Running orchestrator with REDO enabled")
-            
+
             # Load configuration
             config = load_config()
             time_budget_ms = config.get("ORCHESTRATION_TIME_BUDGET_MS", 400)
-            
+
             # Create orchestrator
             orchestrator = RedoOrchestrator()
-            
+
             # Configure orchestrator
             orchestration_config = OrchestrationConfig(
                 enable_contradiction_detection=use_contradictions,
@@ -433,7 +433,7 @@ def chat_chat_post(
                 }
             )
             orchestrator.configure(orchestration_config)
-            
+
             # Create query context
             query_context = QueryContext(
                 query=body.prompt,
@@ -450,16 +450,16 @@ def chat_chat_post(
                     "use_liftscore": use_liftscore
                 }
             )
-            
+
             # Run orchestration with time budget
             orchestration_result = orchestrator.run(query_context)
             orchestration_time = (time.time() - orchestration_start) * 1000
-            
+
             # Check if we exceeded time budget
             if orchestration_time > time_budget_ms:
                 orchestration_warnings.append(f"Orchestration exceeded time budget: {orchestration_time:.1f}ms > {time_budget_ms}ms")
                 print(f"⚠️ Orchestration time budget exceeded: {orchestration_time:.1f}ms > {time_budget_ms}ms")
-            
+
             # Use orchestrated context if available
             if orchestration_result and orchestration_result.selected_context_ids:
                 # Filter retrieved chunks to only include orchestrated selections
@@ -467,19 +467,19 @@ def chat_chat_post(
                 for chunk in retrieved_chunks:
                     if chunk.get("id") in orchestration_result.selected_context_ids:
                         orchestrated_chunks.append(chunk)
-                
+
                 if orchestrated_chunks:
                     retrieved_chunks = orchestrated_chunks
                     print(f"Orchestrator selected {len(orchestrated_chunks)} chunks from {len(retrieved_chunks)} available")
                 else:
                     print("Orchestrator selected no chunks, using all retrieved chunks")
-            
+
             # Add orchestration warnings to general warnings
             if orchestration_result and orchestration_result.warnings:
                 orchestration_warnings.extend(orchestration_result.warnings)
-            
+
             print(f"Orchestration completed in {orchestration_time:.1f}ms")
-            
+
         except Exception as e:
             orchestration_warnings.append(f"Orchestration failed: {str(e)}")
             print(f"Orchestration failed: {e}")

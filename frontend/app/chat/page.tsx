@@ -6,6 +6,8 @@ import { ChatMessageList } from '@/components/chat/ChatMessageList';
 import { ChatComposer } from '@/components/chat/ChatComposer';
 import { ProcessSidebar } from '@/components/chat/ProcessSidebar';
 import type { ChatMessage } from '@/components/chat/types';
+import { sendChat } from '@/lib/api';
+import { useMode } from '@/app/context/mode-context';
 
 const generateSessionId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -17,21 +19,49 @@ const generateSessionId = () => {
 export default function ChatPage() {
   const [sessionId] = useState<string>(() => generateSessionId());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { mode } = useMode();
 
-  const handleSend = (content: string) => {
+  const handleSend = async (content: string) => {
+    if (isSending) {
+      return;
+    }
+
+    setError(null);
     const timestamp = Date.now();
     const userMessage: ChatMessage = {
       id: `${sessionId}-user-${timestamp}`,
       role: 'user',
       content,
     };
-    const assistantMessage: ChatMessage = {
-      id: `${sessionId}-assistant-${timestamp + 1}`,
-      role: 'assistant',
-      content: 'Placeholder response. Structured epistemic output coming soon.',
-    };
+    setMessages((prev) => [...prev, userMessage]);
 
-    setMessages((prev) => [...prev, userMessage, assistantMessage]);
+    setIsSending(true);
+    try {
+      const response = await sendChat({
+        sessionId,
+        message: content,
+        mode,
+        options: {
+          includeProcessTrace: mode !== 'public',
+        },
+      });
+
+      const assistantMessage: ChatMessage = {
+        id: `${sessionId}-assistant-${timestamp + 1}`,
+        role: 'assistant',
+        content: response.answer,
+        meta: response,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (apiError) {
+      const message =
+        apiError instanceof Error ? apiError.message : 'Something went wrong. Please try again.';
+      setError(message);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -46,7 +76,7 @@ export default function ChatPage() {
             <ChatMessageList messages={messages} />
           </div>
           <div className="border-t border-slate-100 px-6 py-4">
-            <ChatComposer onSend={handleSend} />
+            <ChatComposer onSend={handleSend} disabled={isSending} isLoading={isSending} error={error} />
           </div>
         </div>
         <div className="lg:sticky lg:top-32">

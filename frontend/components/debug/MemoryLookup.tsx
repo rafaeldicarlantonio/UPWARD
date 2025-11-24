@@ -32,6 +32,11 @@ export function MemoryLookup() {
   };
 
   const metadata = (memory?.metadata ?? {}) as Record<string, unknown>;
+  const snippet =
+    memory && typeof memory.content === 'string' && memory.content.trim() ? memory.content : '';
+  const metadataSnippet =
+    typeof metadata.contentSnippet === 'string' && metadata.contentSnippet ? metadata.contentSnippet : '';
+  const displayedSnippet = snippet || metadataSnippet || '—';
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -69,10 +74,7 @@ export function MemoryLookup() {
             <p className="text-xs uppercase tracking-wide text-slate-500">Title</p>
             <p className="font-medium text-slate-900">{memory.title || 'Untitled memory'}</p>
           </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-500">Snippet</p>
-            <p className="text-slate-700">{memory.content || metadata.contentSnippet || '—'}</p>
-          </div>
+          <InfoLine label="Snippet" value={displayedSnippet} />
           <div className="grid gap-3 md:grid-cols-2">
             <InfoLine label="Source Type" value={(metadata.sourceType as string) || '—'} />
             <InfoLine label="Domain" value={(metadata.domain as string) || '—'} />

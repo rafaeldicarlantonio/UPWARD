@@ -223,6 +223,8 @@ export async function sendChat(payload: ChatRequestPayload): Promise<ChatRespons
     body.preferences = payload.options;
   }
 
+  body.messages = [{ role: 'user', content: payload.prompt }];
+
   return request<ChatResponse>('/chat', {
     method: 'POST',
     body: JSON.stringify(body),

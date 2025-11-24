@@ -1,17 +1,25 @@
+'use client';
+
+import { useState } from 'react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { UploadForm } from '@/components/upload/UploadForm';
+import { RecentUploadsTable } from '@/components/upload/RecentUploadsTable';
 
 export default function UploadPage() {
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  const handleUploadComplete = () => {
+    setRefreshToken((token) => token + 1);
+  };
+
   return (
-    <section className="space-y-6">
+    <section className="space-y-8">
       <PageHeader
         title="Upload & Enrich Corpus"
         description="Ingest new materials, capture epistemic metadata, and view recent uploads."
       />
-      <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-600">
-          Upload workflow coming soon. You’ll be able to submit files, annotate metadata, and track ingestion status.
-        </p>
-      </div>
+      <UploadForm onUploadComplete={handleUploadComplete} />
+      <RecentUploadsTable refreshToken={refreshToken} />
     </section>
   );
 }

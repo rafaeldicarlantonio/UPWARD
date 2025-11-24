@@ -64,6 +64,10 @@ export default function ChatPage() {
     }
   };
 
+  const latestProcessTrace = [...messages]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.meta?.processTrace)?.meta?.processTrace;
+
   return (
     <section className="space-y-6">
       <PageHeader
@@ -80,7 +84,7 @@ export default function ChatPage() {
           </div>
         </div>
         <div className="lg:sticky lg:top-32">
-          <ProcessSidebar />
+          <ProcessSidebar processTrace={latestProcessTrace} mode={mode} />
         </div>
       </div>
     </section>

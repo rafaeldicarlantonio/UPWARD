@@ -51,6 +51,8 @@ export function RecentUploadsTable({ refreshToken = 0 }: RecentUploadsTableProps
       </header>
       {error ? (
         <p className="text-sm text-rose-600">{error}</p>
+      ) : uploads.length === 0 && !isLoading ? (
+        <p className="text-sm text-slate-500">No uploads found yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -64,25 +66,17 @@ export function RecentUploadsTable({ refreshToken = 0 }: RecentUploadsTableProps
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {uploads.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                    No uploads yet.
+              {uploads.map((upload) => (
+                <tr key={upload.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-medium text-slate-900">{upload.filename}</td>
+                  <td className="px-4 py-3 text-slate-600">{upload.sourceType || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600 capitalize">{upload.reliability || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600 capitalize">{upload.status || '—'}</td>
+                  <td className="px-4 py-3 text-slate-500">
+                    {upload.uploadedAt ? new Date(upload.uploadedAt).toLocaleString() : '—'}
                   </td>
                 </tr>
-              ) : (
-                uploads.map((upload) => (
-                  <tr key={upload.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-medium text-slate-900">{upload.filename}</td>
-                    <td className="px-4 py-3 text-slate-600">{upload.sourceType || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600 capitalize">{upload.reliability || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600 capitalize">{upload.status || '—'}</td>
-                    <td className="px-4 py-3 text-slate-500">
-                      {upload.uploadedAt ? new Date(upload.uploadedAt).toLocaleString() : '—'}
-                    </td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>

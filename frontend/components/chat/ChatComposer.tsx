@@ -53,7 +53,14 @@ export function ChatComposer({ onSend, disabled = false, error, isLoading = fals
           disabled={disabled}
           className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-400"
         >
-          Send
+          {isLoading ? (
+            <>
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+              Answering…
+            </>
+          ) : (
+            'Send'
+          )}
         </button>
       </div>
       {error ? <p className="mt-2 text-xs text-rose-600">{error}</p> : null}

@@ -58,7 +58,11 @@ export function MemoryLookup() {
           {isLoading ? 'Looking up…' : 'Lookup memory'}
         </button>
       </form>
+      {isLoading ? <p className="mt-2 text-xs text-slate-500">Fetching memory…</p> : null}
       {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
+      {!memory && !error && !isLoading ? (
+        <p className="mt-4 text-sm text-slate-500">Enter a memory ID to inspect its metadata.</p>
+      ) : null}
       {memory ? (
         <article className="mt-4 space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
           <div>

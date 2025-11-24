@@ -47,6 +47,8 @@ export function ContradictionsList() {
       </header>
       {error ? (
         <p className="text-sm text-rose-600">{error}</p>
+      ) : contradictions.length === 0 && !isLoading ? (
+        <p className="text-sm text-slate-500">No open contradictions.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -60,25 +62,17 @@ export function ContradictionsList() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {contradictions.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                    No open contradictions.
+              {contradictions.map((item) => (
+                <tr key={item.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{item.id}</td>
+                  <td className="px-4 py-3 text-slate-700">{item.claimA || '—'}</td>
+                  <td className="px-4 py-3 text-slate-700">{item.claimB || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600 capitalize">{item.status}</td>
+                  <td className="px-4 py-3 text-xs text-slate-500">
+                    {item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '—'}
                   </td>
                 </tr>
-              ) : (
-                contradictions.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{item.id}</td>
-                    <td className="px-4 py-3 text-slate-700">{item.claimA || '—'}</td>
-                    <td className="px-4 py-3 text-slate-700">{item.claimB || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600 capitalize">{item.status}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">
-                      {item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '—'}
-                    </td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>

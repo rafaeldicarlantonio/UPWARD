@@ -58,7 +58,11 @@ export function RheomodeLookup() {
           {isLoading ? 'Looking up…' : 'Lookup run'}
         </button>
       </form>
+      {isLoading ? <p className="mt-2 text-xs text-slate-500">Fetching run…</p> : null}
       {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
+      {!run && !error && !isLoading ? (
+        <p className="mt-4 text-sm text-slate-500">Enter a run ID to inspect its REDO trace.</p>
+      ) : null}
       {run ? (
         <article className="mt-4 space-y-4 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
           <InfoBlock label="Question" value={run?.query || run?.metadata?.question || '—'} />

@@ -32,6 +32,8 @@ export function RheomodeLookup() {
   };
 
   const process = run?.processTrace || run?.processTraceSummary;
+  const metadata = (run?.metadata ?? {}) as Record<string, unknown>;
+  const question = (run?.query || metadata.question || '') as string;
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -65,7 +67,7 @@ export function RheomodeLookup() {
       ) : null}
       {run ? (
         <article className="mt-4 space-y-4 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
-          <InfoBlock label="Question" value={run?.query || run?.metadata?.question || '—'} />
+          <InfoBlock label="Question" value={question || '—'} />
           <TraceList title="Relevate" items={process?.relevate} />
           <TraceEvidence title="Evidentiate" items={process?.evidentiate?.map((item) => item.title)} />
           <TraceList title="Divide" items={process?.divide} />

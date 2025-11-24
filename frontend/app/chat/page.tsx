@@ -57,7 +57,7 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (apiError) {
       const message =
-        apiError instanceof Error ? apiError.message : 'Something went wrong. Please try again.';
+        apiError instanceof Error ? apiError.message : 'Unable to reach UPWARD. Please try again in a moment.';
       setError(message);
     } finally {
       setIsSending(false);

@@ -217,13 +217,17 @@ export async function sendChat(payload: ChatRequestPayload): Promise<ChatRespons
     prompt: payload.prompt,
     session_id: payload.sessionId,
     mode: payload.mode,
+    messages: [
+      {
+        role: 'user',
+        content: payload.prompt,
+      },
+    ],
+    preferences: {
+      includeProcessTrace: payload.options?.includeProcessTrace ?? false,
+      includeContradictions: payload.options?.includeContradictions ?? false,
+    },
   };
-
-  if (payload.options) {
-    body.preferences = payload.options;
-  }
-
-  body.messages = [{ role: 'user', content: payload.prompt }];
 
   return request<ChatResponse>('/chat', {
     method: 'POST',

@@ -15,8 +15,8 @@ export function EvidencePanel({ evidence, collapsed = false }: EvidencePanelProp
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <header className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-slate-900">Evidence</h3>
+      <header className="mb-3 flex items-center justify-between">
+        <h3 className="text-base font-medium text-slate-900">Evidence</h3>
         <button
           type="button"
           className="text-xs font-medium text-slate-600 hover:text-slate-900"

@@ -82,10 +82,10 @@ export function ProcessSidebar({ processTrace, mode }: ProcessSidebarProps) {
   }
 
   return (
-    <aside className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <header className="mb-4">
-        <p className="text-sm font-semibold text-slate-900">Process Trace (REDO)</p>
-        <p className="text-xs text-slate-500">Scholar & Staff modes visualize Relevate, Evidentiate, Divide, Ordinate.</p>
+    <aside className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <header className="mb-4 space-y-1">
+        <p className="text-base font-medium text-slate-900">Process Trace (REDO)</p>
+        <p className="text-sm text-slate-500">Scholar & Staff modes visualize Relevate, Evidentiate, Divide, Ordinate.</p>
       </header>
       {content}
     </aside>
@@ -104,8 +104,8 @@ function ProcessSection({
   return (
     <section>
       <header className="mb-2">
-        <p className="text-xs uppercase tracking-wide text-slate-500">{title}</p>
-        <p className="text-xs text-slate-400">{description}</p>
+        <p className="text-sm font-medium text-slate-700">{title}</p>
+        <p className="text-xs text-slate-500">{description}</p>
       </header>
       {children}
     </section>
@@ -113,6 +113,6 @@ function ProcessSection({
 }
 
 function EmptyLine() {
-  return <p className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">No data.</p>;
+  return <p className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-sm text-slate-500">No data.</p>;
 }
 

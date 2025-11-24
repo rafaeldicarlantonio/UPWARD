@@ -19,8 +19,8 @@ export function HypothesesPanel({ hypotheses, evidenceMap, collapsed = false }: 
 
   return (
     <section className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${collapsed ? 'opacity-70' : ''}`}>
-      <header className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-slate-900">Hypotheses</h3>
+      <header className="mb-3 flex items-center justify-between">
+        <h3 className="text-base font-medium text-slate-900">Hypotheses</h3>
         {collapsed ? <p className="text-xs text-slate-500">Hidden in public mode</p> : null}
       </header>
       <div className={`space-y-4 ${collapsed ? 'hidden' : 'block'}`}>

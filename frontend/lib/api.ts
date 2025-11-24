@@ -187,7 +187,7 @@ export interface RheomodeRun {
   [key: string]: unknown;
 }
 
-export interface ContradictionQueryParams {
+export interface ContradictionQueryParams extends Record<string, string | number | undefined> {
   status?: 'open' | 'resolved';
   subject?: string;
   limit?: number;

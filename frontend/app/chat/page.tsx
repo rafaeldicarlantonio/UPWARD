@@ -41,7 +41,7 @@ export default function ChatPage() {
     try {
       const response = await sendChat({
         sessionId,
-        message: content,
+        prompt: content,
         mode,
         options: {
           includeProcessTrace: mode !== 'public',

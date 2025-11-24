@@ -101,7 +101,7 @@ export interface ChatRequestOptions {
 
 export interface ChatRequestPayload {
   sessionId?: string;
-  message: string;
+  prompt: string;
   mode: Mode;
   options?: ChatRequestOptions;
 }
@@ -213,9 +213,19 @@ interface ContradictionsResponse {
 }
 
 export async function sendChat(payload: ChatRequestPayload): Promise<ChatResponse> {
+  const body: Record<string, unknown> = {
+    prompt: payload.prompt,
+    session_id: payload.sessionId,
+    mode: payload.mode,
+  };
+
+  if (payload.options) {
+    body.preferences = payload.options;
+  }
+
   return request<ChatResponse>('/chat', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 }
 

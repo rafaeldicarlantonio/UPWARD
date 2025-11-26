@@ -16,6 +16,7 @@ postgrest>=0.11.0
 python-ulid
 pydantic>=2.5.0
 python-dotenv
+tenacity>=8.2.0
 
 # ingestion / upload deps
 pypdf>=3.17.0

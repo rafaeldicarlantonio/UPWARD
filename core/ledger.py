@@ -302,3 +302,53 @@ def delete_ledger_entry(session_id: str, message_id: str) -> bool:
     # In a real implementation, this would delete from the database
     # For now, return False as we don't have persistent storage
     return False
+
+
+def log_chat_request(
+    session_id: str,
+    message_id: str,
+    role: str,
+    query: str,
+    selection_result: Any,
+    contradictions: List[Dict[str, Any]],
+    timing: Dict[str, float],
+    lift_score: Optional[float] = None,
+    contradiction_score: float = 0.0
+) -> None:
+    """
+    Log a chat request with retrieval metadata to rheomode_runs table.
+    
+    Args:
+        session_id: Session identifier
+        message_id: Message identifier
+        role: User role
+        query: User query
+        selection_result: Selection result from retrieval
+        contradictions: List of contradictions found
+        timing: Timing metrics dictionary
+        lift_score: Optional lift score
+        contradiction_score: Contradiction score
+    """
+    # Create log entry
+    log_entry = {
+        "session_id": session_id,
+        "message_id": message_id,
+        "role": role,
+        "query": query[:1000],  # Truncate query
+        "selection_metadata": {
+            "context_count": len(selection_result.context) if hasattr(selection_result, 'context') else 0,
+            "ranked_ids_count": len(selection_result.ranked_ids) if hasattr(selection_result, 'ranked_ids') else 0,
+        },
+        "contradictions_count": len(contradictions),
+        "contradiction_score": contradiction_score,
+        "lift_score": lift_score,
+        "timing": timing,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    
+    # In a real implementation, this would insert into the rheomode_runs table
+    # For now, just log it
+    print(f"Logged chat request: session_id={session_id}, message_id={message_id}, timing={timing}")
+    
+    # In a real implementation, this would be:
+    # supabase.table("rheomode_runs").insert(log_entry).execute()

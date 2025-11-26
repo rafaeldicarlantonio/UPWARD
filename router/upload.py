@@ -19,6 +19,50 @@ def _safe_len(x) -> int:
     except Exception:
         return 0
 
+@router.get("/uploads/recent")
+async def get_recent_uploads(
+    limit: int = 10,
+    x_api_key: Optional[str] = Header(None),
+):
+    """Get recent file uploads."""
+    # --- auth guard ---
+    expected = os.getenv("X_API_KEY")
+    if expected and x_api_key != expected:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    sb = get_client()
+    
+    try:
+        # Query recent files from the files table
+        result = sb.table("files").select("*").order("created_at", desc=True).limit(limit).execute()
+        files = result.data if hasattr(result, "data") else []
+        
+        # Format response
+        return {
+            "status": "ok",
+            "files": [
+                {
+                    "id": f.get("id"),
+                    "filename": f.get("filename"),
+                    "mime_type": f.get("mime_type"),
+                    "bytes": f.get("bytes"),
+                    "created_at": f.get("created_at"),
+                    "storage_url": f.get("storage_url"),
+                }
+                for f in files
+            ],
+            "count": len(files),
+        }
+    except Exception as e:
+        # Return empty list on error rather than failing
+        print(f"Failed to fetch recent uploads: {e}")
+        return {
+            "status": "ok",
+            "files": [],
+            "count": 0,
+            "error": str(e),
+        }
+
 @router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
